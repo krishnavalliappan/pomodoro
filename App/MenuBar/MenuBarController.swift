@@ -70,6 +70,14 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
     }
 
+    /// SF Symbol names for `MenuBarSettingsView`'s preview, which predates the asset glyph.
+    static func symbol(for snapshot: TimerSnapshot) -> String {
+        switch icon(for: snapshot) {
+        case .tomato: return snapshot.phase == .idle ? "timer" : "timer.circle.fill"
+        case .symbol(let name): return name
+        }
+    }
+
     /// Swaps the title's leading emoji for a template image, so the glyph follows the menu bar's tint.
     static func glyphTitle(_ title: String) -> (icon: Icon?, text: String) {
         for (emoji, icon) in [("🍅 ", Icon.tomato), ("☕ ", Icon.symbol("cup.and.saucer.fill"))] where title.hasPrefix(emoji) {

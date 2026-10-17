@@ -25,8 +25,9 @@ and time-blocking built in.
 - **Wall-clock accurate.** The timer is anchored to the clock rather than counting ticks, so it
   stays correct across sleep and uses almost no CPU while idle.
 
-> Status: the timer, popover, presets, notifications and sounds are in. The task list (#10),
-> planner (#11), settings window with global hotkeys (#12), and stats (#13) are in progress.
+- **Global hotkeys** for start/pause, skip, show the timer, and quick-add, plus launch at login.
+
+> Status: the planner's day timeline (#11) and stats (#13) are in progress.
 
 ## Screenshots
 
@@ -80,7 +81,15 @@ In the popover:
 | ⌘, | Settings |
 | ⌘Q | Quit |
 
-Global hotkeys (start/pause, skip, open the popover) arrive with the settings window (#12).
+Global hotkeys have no defaults, so they can't clash with other apps. Set them in
+**Settings → Shortcuts**:
+
+| Hotkey | Action |
+|---|---|
+| Start or pause | Start, pause, or resume the timer from anywhere |
+| Skip to next phase | End the current phase and move on |
+| Show or hide timer | Toggle the popover |
+| Quick-add task | Open the popover with the quick-add field focused |
 
 ## Quick-add grammar
 
