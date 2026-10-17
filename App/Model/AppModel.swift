@@ -73,6 +73,8 @@ final class AppModel {
 
     @ObservationIgnored let database: AppDatabase
     @ObservationIgnored let sound: SoundService
+    /// Observable on its own, so a preview starting doesn't re-render the timer.
+    let ambient: AmbientPlayer
     @ObservationIgnored private let engine: TimerEngine
     @ObservationIgnored let clock: any TimeSource
     @ObservationIgnored private let settingsStore: any SettingsStore
@@ -95,6 +97,7 @@ final class AppModel {
         timerStore: any TimerStateStore,
         database: AppDatabase,
         sound: SoundService,
+        ambient: AmbientPlayer? = nil,
         scheduler: any TimerScheduling,
         onEngineUpdate: EngineUpdate? = nil
     ) {
@@ -111,6 +114,7 @@ final class AppModel {
         self.timerStore = timerStore
         self.database = database
         self.sound = sound
+        self.ambient = ambient ?? AmbientPlayer(library: .empty, engine: AVAmbientEngine(), scheduler: scheduler, clock: clock)
         self.scheduler = scheduler
         self.engine = engine
         self.settings = settings
@@ -125,6 +129,8 @@ final class AppModel {
         self.today = TodaySummary(day: database.day(containing: clock.now))
         tasks.ensureLoaded(engine.taskID)
         sound.settings = settings.sounds
+        // Before the launch reconcile, whose update may resume a restored focus's sounds.
+        self.ambient.configure(mix: settings.ambient, policy: settings.ambientPolicy)
         // Every focus picks its profile here, including one auto-started inside a catch-up.
         engine.configurationForFocus = { [weak self] in self?.configurationForFocus() }
         refreshToday()
@@ -132,7 +138,7 @@ final class AppModel {
         reconcile()
     }
 
-    static func live(onEngineUpdate: EngineUpdate? = nil) -> AppModel {
+    static func live(ambient: AmbientPlayer? = nil, onEngineUpdate: EngineUpdate? = nil) -> AppModel {
         let database: AppDatabase
         do {
             database = try .onDisk()
@@ -146,6 +152,7 @@ final class AppModel {
             timerStore: UserDefaultsTimerStateStore(),
             database: database,
             sound: SoundService(),
+            ambient: ambient ?? .live(),
             scheduler: RunLoopScheduler(),
             onEngineUpdate: onEngineUpdate
         )
@@ -363,6 +370,7 @@ final class AppModel {
             if let error = error as? SettingsStoreError, error != settingsSaveError { settingsSaveError = error }
         }
         sound.settings = updated.sounds
+        ambient.configure(mix: updated.ambient, policy: updated.ambientPolicy)
         // A new nudge interval or auto-start moves the boundary, so this takes the same path as an action.
         handle([])
     }
@@ -383,6 +391,7 @@ final class AppModel {
         blockBoundaryTimer?.cancel()
         blockBoundaryTimer = nil
         sound.stopTicking()
+        ambient.shutdown()
     }
 
     // MARK: - Visibility

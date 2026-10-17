@@ -68,6 +68,14 @@ final class SettingsSnapshotTests: XCTestCase {
         assertPane(.menuBar, model: model, variant: "menuBar-saveError", extraHeight: SettingsPane.bannerHeight)
     }
 
+    func testSoundCredits() {
+        Snapshot.assertLightAndDark(
+            SoundCreditsView(sounds: AmbientLibrary.bundled().sounds, onDone: {}),
+            size: SoundCreditsView.size,
+            name: "SoundCreditsView"
+        )
+    }
+
     func testPresetEditor() {
         Snapshot.assertLightAndDark(
             PresetEditor(draft: PresetDraft(.deep), onCancel: {}, onSave: { _ in }),

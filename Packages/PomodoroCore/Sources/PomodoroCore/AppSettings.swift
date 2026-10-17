@@ -60,11 +60,13 @@ extension SoundSettings: Codable {
 public struct AppSettings: Hashable, Sendable {
     /// Bump when the stored shape changes in a way `init(from:)` can't absorb, and add a step to
     /// `migrate(_:from:)`.
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     public private(set) var presets: [Preset]
     public private(set) var defaultPresetID: Preset.ID
     public var sounds: SoundSettings
+    public var ambient: AmbientMix
+    public var ambientPolicy: AmbientPolicy
     public var menuBarDisplay: MenuBarDisplayMode
     public var launchAtLogin: Bool
     /// 1 = Sunday … 7 = Saturday, matching `Calendar.firstWeekday`. `nil` follows the system.
@@ -76,6 +78,8 @@ public struct AppSettings: Hashable, Sendable {
         presets: [Preset] = Preset.builtIns,
         defaultPresetID: Preset.ID = Preset.classic.id,
         sounds: SoundSettings = SoundSettings(),
+        ambient: AmbientMix = AmbientMix(),
+        ambientPolicy: AmbientPolicy = AmbientPolicy(),
         menuBarDisplay: MenuBarDisplayMode = .time,
         launchAtLogin: Bool = false,
         firstWeekday: Int? = nil
@@ -87,6 +91,8 @@ public struct AppSettings: Hashable, Sendable {
         self.presets = unique
         self.defaultPresetID = unique.contains { $0.id == defaultPresetID } ? defaultPresetID : unique[0].id
         self.sounds = sounds
+        self.ambient = ambient
+        self.ambientPolicy = ambientPolicy
         self.menuBarDisplay = menuBarDisplay
         self.launchAtLogin = launchAtLogin
         self.firstWeekday = Self.normalizedWeekday(firstWeekday)
@@ -171,7 +177,7 @@ extension AppSettings {
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case version, presets, defaultPresetID, sounds, menuBarDisplay, launchAtLogin, firstWeekday
+        case version, presets, defaultPresetID, sounds, ambient, ambientPolicy, menuBarDisplay, launchAtLogin, firstWeekday
     }
 
     public init(from decoder: Decoder) throws {
@@ -183,6 +189,8 @@ extension AppSettings: Codable {
             presets: presets ?? base.presets,
             defaultPresetID: c.lenient(UUID.self, .defaultPresetID) ?? base.defaultPresetID,
             sounds: c.lenient(SoundSettings.self, .sounds) ?? base.sounds,
+            ambient: c.lenient(AmbientMix.self, .ambient) ?? base.ambient,
+            ambientPolicy: c.lenient(AmbientPolicy.self, .ambientPolicy) ?? base.ambientPolicy,
             menuBarDisplay: c.lenient(MenuBarDisplayMode.self, .menuBarDisplay) ?? base.menuBarDisplay,
             launchAtLogin: c.lenient(Bool.self, .launchAtLogin) ?? base.launchAtLogin,
             firstWeekday: c.lenient(Int.self, .firstWeekday)
@@ -195,6 +203,8 @@ extension AppSettings: Codable {
         try c.encode(presets, forKey: .presets)
         try c.encode(defaultPresetID, forKey: .defaultPresetID)
         try c.encode(sounds, forKey: .sounds)
+        try c.encode(ambient, forKey: .ambient)
+        try c.encode(ambientPolicy, forKey: .ambientPolicy)
         try c.encode(menuBarDisplay, forKey: .menuBarDisplay)
         try c.encode(launchAtLogin, forKey: .launchAtLogin)
         try c.encode(firstWeekday, forKey: .firstWeekday)
@@ -232,7 +242,14 @@ extension AppSettings: Codable {
 
     static func migrate(_ settings: AppSettings, from version: Int) -> AppSettings {
         // Version 0 (unversioned) and 1 share a shape; lenient decoding already filled any gaps.
-        settings
+        var settings = settings
+        if version < 2 {
+            // Ambient sounds arrived in 2. Nothing older wrote these keys, so whatever sits there
+            // isn't the user's choice: start silent, with breaks fading out.
+            settings.ambient = AmbientMix()
+            settings.ambientPolicy = AmbientPolicy()
+        }
+        return settings
     }
 
     public func encoded() throws -> Data {

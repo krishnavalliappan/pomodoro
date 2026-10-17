@@ -94,13 +94,21 @@ final class ModelHarness {
         players = Dictionary(uniqueKeysWithValues: SoundID.allCases.filter { $0 != .none }.map { ($0, RecordingSoundPlayer()) })
     }
 
-    func makeModel(onEngineUpdate: AppModel.EngineUpdate? = nil) -> AppModel {
+    /// The bundled library, played through a fake engine.
+    let ambientEngine = FakeAmbientEngine()
+
+    func makeAmbientPlayer(library: AmbientLibrary = .bundled()) -> AmbientPlayer {
+        AmbientPlayer(library: library, engine: ambientEngine, scheduler: scheduler, clock: clock)
+    }
+
+    func makeModel(ambient: AmbientPlayer? = nil, onEngineUpdate: AppModel.EngineUpdate? = nil) -> AppModel {
         AppModel(
             clock: clock,
             settingsStore: settingsStore,
             timerStore: timerStore,
             database: database,
             sound: SoundService(players: players),
+            ambient: ambient ?? makeAmbientPlayer(),
             scheduler: scheduler,
             onEngineUpdate: onEngineUpdate
         )

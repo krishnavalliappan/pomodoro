@@ -257,3 +257,63 @@ struct PresetManagementTests {
         #expect(s.defaultProfile.longBreakEvery == TimerProfile.longBreakEveryRange.upperBound)
     }
 }
+
+struct AppSettingsAmbientMigrationTests {
+    @Test func defaultsAreSilentWithBreaksFadingOut() {
+        #expect(AppSettings.default.ambient == AmbientMix())
+        #expect(AppSettings.default.ambientPolicy == AmbientPolicy(duringBreaks: .off))
+        #expect(AppSettings.currentVersion == 2)
+    }
+
+    @Test func ambientRoundTrips() throws {
+        var s = AppSettings.default
+        s.ambient.toggle("rain")
+        s.ambient.toggle("forest")
+        s.ambient.setLevel(0.5, for: "forest")
+        s.ambient.volume = 0.3
+        s.ambientPolicy.duringBreaks = .lower
+        let decoded = AppSettings.decode(try s.encoded())
+        #expect(decoded.settings == s)
+        #expect(!decoded.needsResave)
+    }
+
+    @Test func versionOneMigratesToSilentAmbient() throws {
+        let data = Data(#"{"version": 1, "menuBarDisplay": "iconOnly", "launchAtLogin": true}"#.utf8)
+        let decoded = AppSettings.decode(data)
+        #expect(decoded.storedVersion == 1)
+        #expect(decoded.needsResave)
+        #expect(decoded.settings.menuBarDisplay == .iconOnly)
+        #expect(decoded.settings.launchAtLogin)
+        #expect(decoded.settings.ambient == AmbientMix())
+        #expect(decoded.settings.ambientPolicy == AmbientPolicy())
+
+        let object = try JSONSerialization.jsonObject(with: try decoded.settings.encoded()) as? [String: Any]
+        #expect(object?["version"] as? Int == 2)
+        #expect(object?["ambient"] != nil)
+        #expect(object?["ambientPolicy"] != nil)
+    }
+
+    /// Keys a version 1 build never wrote can't be the user's choice, so they don't survive.
+    @Test func versionOneIgnoresStrayAmbientKeys() {
+        let data = Data(#"{"version": 1, "ambient": {"sounds": ["rain"]}, "ambientPolicy": {"duringBreaks": "keep"}}"#.utf8)
+        let settings = AppSettings.decode(data).settings
+        #expect(settings.ambient.isEmpty)
+        #expect(settings.ambientPolicy.duringBreaks == .off)
+    }
+
+    @Test func versionTwoKeepsAmbient() {
+        let data = Data(#"{"version": 2, "ambient": {"sounds": ["rain", "rain", "cafe"], "volume": 0.4}, "ambientPolicy": {"duringBreaks": "keep"}}"#.utf8)
+        let settings = AppSettings.decode(data).settings
+        #expect(settings.ambient.sounds == ["rain", "cafe"])
+        #expect(settings.ambient.volume == 0.4)
+        #expect(settings.ambientPolicy.duringBreaks == .keep)
+    }
+
+    @Test func malformedAmbientFallsBackWithoutLosingTheRest() {
+        let data = Data(#"{"version": 2, "ambient": 7, "ambientPolicy": "loud", "launchAtLogin": true}"#.utf8)
+        let settings = AppSettings.decode(data).settings
+        #expect(settings.ambient == AmbientMix())
+        #expect(settings.ambientPolicy == AmbientPolicy())
+        #expect(settings.launchAtLogin)
+    }
+}

@@ -34,8 +34,13 @@ targets:
       - path: App
         excludes:
           - "Resources/Sounds/**"
+          - "Resources/Ambient/**"
       # Folder reference keeps the WAVs under Sounds/ in the bundle. Regenerate with scripts/gen_sounds.py.
       - path: App/Resources/Sounds
+        type: folder
+        buildPhase: resources
+      # The ambient loops and their manifest, under Ambient/. Rebuild with scripts/import_ambient.py.
+      - path: App/Resources/Ambient
         type: folder
         buildPhase: resources
     dependencies:

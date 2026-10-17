@@ -20,6 +20,9 @@ and time-blocking built in.
   block, the popover suggests that block's task.
 - **Sounds.** Original, procedurally generated chimes for focus end, break end, and start, plus an
   optional soft tick, with master volume.
+- **Ambient sounds.** Layer rain, forest, café, waves, noise and more during focus. They fade out
+  for pauses and breaks (or stay, or play quieter) and fade back in when focus resumes. Recordings
+  are CC0, Public Domain or CC BY; see [`SOUNDS_LICENSING.md`](SOUNDS_LICENSING.md).
 - **Notifications** with actions, so you can start a break or keep going without opening anything.
   Sleep and lid close are reconciled on wake.
 - **Wall-clock accurate.** The timer is anchored to the clock rather than counting ticks, so it
@@ -136,6 +139,8 @@ Packages/PomodoroCore/    pure-Swift logic package (no SwiftUI/AppKit) + its tes
 Tests/PomodoroTests/      app test target (snapshot tests)
 Snapshots/                snapshot reference PNGs
 scripts/gen_sounds.py     regenerates App/Resources/Sounds/*.wav (stdlib Python, deterministic)
+scripts/import_ambient.py rebuilds App/Resources/Ambient/ (ambient loops + credits manifest)
+SOUNDS_LICENSING.md       credits and licenses for the bundled ambient recordings
 scripts/gen_icons.py      regenerates the app icon and menu bar glyph in Assets.xcassets (same)
 scripts/bootstrap-mac.sh  one-time Mac setup
 scripts/check.sh          local build/test loop (core | app | run | all)
@@ -184,6 +189,26 @@ and writes a SHA-256 checksum.
 `python3 scripts/gen_icons.py` redraws `AppIcon.appiconset` (all macOS sizes) and the
 `MenuBarIcon` template glyph from signed distance fields, so every size is drawn rather than
 downscaled. Commit the PNGs; `StatusItemIconTests` snapshots them.
+
+### Ambient sounds
+
+`scripts/import_ambient.py` downloads the recordings from [Blanket](https://github.com/rafaelmardojai/blanket)
+at a pinned commit, checks each file's sha256, and generates white, pink and brown noise from fixed
+seeds. It then trims each sound to at most 2 minutes, normalises it to −24 LUFS, crossfades the
+loop seam so the end runs into the start, and encodes AAC `.m4a` at 96 kbps. It also writes
+`App/Resources/Ambient/ambient-credits.json` (the app's manifest and credits list) and
+`SOUNDS_LICENSING.md`. Only CC0, Public Domain and CC BY sources are allowed: the manifest decoder
+rejects any other license, and tests check that every CC BY sound has a credit and that the library
+stays under 12 MB.
+
+It needs an ffmpeg with the native AAC encoder. A static build from pip works anywhere:
+
+```sh
+uv venv /tmp/ff && uv pip install --python /tmp/ff/bin/python imageio-ffmpeg
+/tmp/ff/bin/python scripts/import_ambient.py
+```
+
+With the same ffmpeg build, the output is byte-identical between runs.
 
 ### Snapshot tests
 

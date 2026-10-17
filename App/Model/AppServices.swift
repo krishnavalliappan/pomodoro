@@ -10,19 +10,23 @@ final class AppServices {
     let notifications: NotificationService
     let appNap: AppNapGuard
     let systemEvents: SystemEvents
+    let ambient: AmbientPlayer
 
     init(
         notifications: NotificationService,
         appNap: AppNapGuard,
-        makeModel: (@escaping AppModel.EngineUpdate) -> AppModel,
+        ambient: AmbientPlayer,
+        makeModel: (AmbientPlayer, @escaping AppModel.EngineUpdate) -> AppModel,
         makeSystemEvents: (@escaping @MainActor () -> Void) -> SystemEvents
     ) {
         self.notifications = notifications
         self.appNap = appNap
+        self.ambient = ambient
         // Passed at creation so the launch reconcile of a restored session gets the first sync.
-        let model = makeModel { engine, events in
+        let model = makeModel(ambient) { engine, events in
             notifications.sync(with: engine, events: events)
             appNap.update(with: engine)
+            ambient.update(with: engine)
         }
         // That first sync releases responses held from a cold launch, but they resume on a later
         // main-actor turn, after this.
@@ -35,7 +39,8 @@ final class AppServices {
         AppServices(
             notifications: NotificationService(center: LiveNotificationCenter()),
             appNap: AppNapGuard(),
-            makeModel: { AppModel.live(onEngineUpdate: $0) },
+            ambient: .live(),
+            makeModel: { AppModel.live(ambient: $0, onEngineUpdate: $1) },
             makeSystemEvents: { SystemEvents(reconcile: $0) }
         )
     }

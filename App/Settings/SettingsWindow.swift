@@ -41,7 +41,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             case .sounds: 300
             case .menuBar: 170
             case .shortcuts: 240
-            case .general: 210
+            case .general: 250
             }
         return CGSize(width: Self.width, height: height)
     }
