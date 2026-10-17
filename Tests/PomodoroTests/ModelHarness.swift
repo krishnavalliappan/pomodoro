@@ -35,6 +35,7 @@ final class FakeScheduler: TimerScheduling {
     let clock: TestClock
     private var entries: [Entry] = []
     private(set) var firedCount = 0
+    private(set) var scheduledCount = 0
 
     init(clock: TestClock) {
         self.clock = clock
@@ -47,6 +48,7 @@ final class FakeScheduler: TimerScheduling {
     func schedule(at date: Date, _ action: @escaping @MainActor @Sendable () -> Void) -> any ScheduledTimer {
         let entry = Entry(date: date, action: action)
         entries.append(entry)
+        scheduledCount += 1
         return entry
     }
 

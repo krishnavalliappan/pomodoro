@@ -74,11 +74,6 @@ final class PopoverViewSnapshotTests: XCTestCase {
         assertPopover(model, "presetOnce")
     }
 
-    func testPlaceholderWindows() {
-        Snapshot.assertLightAndDark(
-            SettingsPlaceholderView(), size: SettingsPlaceholderView.size, name: "SettingsPlaceholderView", variant: "placeholder")
-    }
-
     // MARK: Tasks
 
     /// A focus on a task: the picker names it, its row is highlighted, and dots show actuals.

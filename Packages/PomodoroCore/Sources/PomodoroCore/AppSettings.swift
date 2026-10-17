@@ -145,6 +145,12 @@ extension AppSettings {
         defaultPresetID = id
     }
 
+    /// Edits the default preset's profile in place, which is what Settings → Timer changes.
+    public mutating func updateDefaultProfile(_ change: (inout TimerProfile) -> Void) {
+        guard let index = presets.firstIndex(where: { $0.id == defaultPresetID }) else { return }
+        change(&presets[index].profile)
+    }
+
     /// `destination` is an insertion offset in the original order, matching SwiftUI's `onMove`.
     public mutating func movePreset(fromOffset source: Int, toOffset destination: Int) {
         guard presets.indices.contains(source) else { return }

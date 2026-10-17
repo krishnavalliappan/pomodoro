@@ -81,12 +81,19 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     // MARK: - Popover
 
-    @objc private func togglePopover(_ sender: Any?) {
+    @objc func togglePopover(_ sender: Any?) {
         if popover.isShown {
             popover.performClose(sender)
         } else {
             showPopover()
         }
+    }
+
+    /// The quick-add hotkey. The field sits above the Today list, so it's there even when the
+    /// list is folded.
+    func focusQuickAdd() {
+        if !popover.isShown { showPopover() }
+        model.requestQuickAddFocus()
     }
 
     private func showPopover() {

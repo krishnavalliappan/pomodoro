@@ -238,4 +238,22 @@ struct PresetManagementTests {
         s.restoreBuiltInPresets()
         #expect(s.presets.map(\.name) == ["Mine", "Quick", "Deep"])
     }
+
+    @Test func updateDefaultProfileEditsOnlyTheDefault() throws {
+        var s = AppSettings.default
+        try s.setDefaultPreset(id: Preset.deep.id)
+        s.updateDefaultProfile { $0.focusDuration = 45 * 60; $0.nudgeInterval = nil }
+        #expect(s.defaultProfile.focusDuration == 45 * 60)
+        #expect(s.defaultProfile.nudgeInterval == nil)
+        #expect(s.preset(id: Preset.classic.id) == .classic)
+        #expect(s.preset(id: Preset.quick.id) == .quick)
+        #expect(s.presets.map(\.id) == Preset.builtIns.map(\.id))
+    }
+
+    @Test func updateDefaultProfileStillClamps() {
+        var s = AppSettings.default
+        s.updateDefaultProfile { $0.focusDuration = 0; $0.longBreakEvery = 99 }
+        #expect(s.defaultProfile.focusDuration == TimerProfile.durationRange.lowerBound)
+        #expect(s.defaultProfile.longBreakEvery == TimerProfile.longBreakEveryRange.upperBound)
+    }
 }

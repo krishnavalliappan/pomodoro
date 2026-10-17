@@ -26,9 +26,14 @@ final class AppModel {
     /// Set while the end of a phase is waiting on the user: *Start break / +5 min / Keep going*.
     private(set) var prompt: EndPrompt? = nil
     private(set) var settings: AppSettings
+    /// The last settings save that failed, e.g. a newer build owns the stored data. Edits still
+    /// apply for this run; Settings shows this so they aren't silently lost on quit.
+    private(set) var settingsSaveError: SettingsStoreError? = nil
     private(set) var planner = SessionPlanner()
     private(set) var completedToday = 0
     private(set) var isPopoverVisible = false
+    /// Set by the quick-add hotkey until the popover's field takes focus.
+    private(set) var wantsQuickAddFocus = false
     /// The task the current focus counts toward, or the next one will. It outlives a stop, so
     /// the next start picks it up again.
     private(set) var selectedTaskID: UUID? = nil
@@ -212,6 +217,14 @@ final class AppModel {
         tasks.add(parseQuickAdd(text), defaultDay: toInbox ? nil : tasks.today)
     }
 
+    func requestQuickAddFocus() {
+        wantsQuickAddFocus = true
+    }
+
+    func quickAddFocusTaken() {
+        if wantsQuickAddFocus { wantsQuickAddFocus = false }
+    }
+
     func deleteTask(_ id: UUID) {
         // Sessions can't reference a deleted task, so the running one lets go of it first.
         if selectedTaskID == id { selectTask(nil) }
@@ -267,12 +280,18 @@ final class AppModel {
         settings = updated
         do {
             try settingsStore.save(updated)
+            if settingsSaveError != nil { settingsSaveError = nil }
         } catch {
             Self.log.error("saving settings failed: \(String(describing: error), privacy: .public)")
+            if let error = error as? SettingsStoreError, error != settingsSaveError { settingsSaveError = error }
         }
         sound.settings = updated.sounds
         // A new nudge interval or auto-start moves the boundary, so this takes the same path as an action.
         handle([])
+    }
+
+    func dismissSettingsSaveError() {
+        settingsSaveError = nil
     }
 
     /// Cancels pending timers and the tick. The run loop would otherwise keep a one-shot timer
@@ -292,6 +311,8 @@ final class AppModel {
     func setPopoverVisible(_ visible: Bool) {
         guard visible != isPopoverVisible else { return }
         isPopoverVisible = visible
+        // A request the field never took mustn't steal focus on the next plain open.
+        if !visible { quickAddFocusTaken() }
         if visible {
             refreshSnapshot()
             refreshCompletedToday()
