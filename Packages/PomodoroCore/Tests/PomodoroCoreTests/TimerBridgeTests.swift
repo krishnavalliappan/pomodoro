@@ -32,7 +32,8 @@ struct TimerBridgeTests {
     @Test func recordBridgesToAStorableSession() throws {
         let clock = TestClock(now: Date(timeIntervalSinceReferenceDate: 800_000_000))
         let engine = TimerEngine(clock: clock)
-        let task = UUID()
+        let db = try AppDatabase.inMemory()
+        let task = try db.tasks.create(title: "Write spec").id
         engine.start(taskID: task)
         clock.advance(by: 600)
         engine.pause()
@@ -57,7 +58,6 @@ struct TimerBridgeTests {
         #expect(session.completed)
         #expect(session.hasValidTiming)
 
-        let db = try AppDatabase.inMemory()
         try db.sessions.insert(session)
         #expect(try db.sessions.fetch(id: session.id) == session)
     }
