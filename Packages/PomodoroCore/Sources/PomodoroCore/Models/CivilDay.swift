@@ -51,6 +51,21 @@ public struct CivilDay: Hashable, Comparable, Sendable {
         return gregorian.startOfDay(for: noon)
     }
 
+    /// 1 = Sunday … 7 = Saturday, like `Calendar.firstWeekday`. The same in every time zone.
+    public var weekday: Int {
+        Self.utc.component(.weekday, from: start(in: Self.utc))
+    }
+
+    /// Counted in civil days, so it never lands on the wrong day across a DST change.
+    public func adding(days: Int) -> CivilDay {
+        CivilDay(containing: Self.utc.date(byAdding: .day, value: days, to: start(in: Self.utc))!, in: Self.utc)
+    }
+
+    /// Whole days from `self` to `other`; negative when `other` is earlier.
+    public func days(to other: CivilDay) -> Int {
+        Self.utc.dateComponents([.day], from: start(in: Self.utc), to: other.start(in: Self.utc)).day!
+    }
+
     public static func < (lhs: CivilDay, rhs: CivilDay) -> Bool {
         (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
     }

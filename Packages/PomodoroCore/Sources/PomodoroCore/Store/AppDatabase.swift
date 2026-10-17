@@ -38,6 +38,7 @@ public struct AppDatabase: Sendable {
     public var tasks: TaskRepository { TaskRepository(database: self) }
     public var blocks: TimeBlockRepository { TimeBlockRepository(database: self) }
     public var sessions: FocusSessionRepository { FocusSessionRepository(database: self) }
+    public var stats: StatsRepository { StatsRepository(database: self) }
 
     // Never edit a shipped migration; append a new one instead.
     static var migrator: DatabaseMigrator {
