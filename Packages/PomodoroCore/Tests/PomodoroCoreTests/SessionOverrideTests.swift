@@ -46,14 +46,15 @@ struct SessionOverrideTests {
         #expect(SessionOverride(parsing: text) == nil)
     }
 
-    @Test func overrideAppliesToNextSessionOnly() {
+    @Test func overrideAppliesToNextSessionOnly() throws {
         var planner = SessionPlanner()
         planner.setOverride(SessionOverride(focus: 50 * 60, break: 10 * 60))
         #expect(planner.previewProfile(in: .default).focusDuration == 50 * 60)
         #expect(planner.pendingOverride != nil)
 
-        let first = planner.consumeProfile(in: .default)
-        #expect(first?.focusDuration == 50 * 60)
+        let consumedFirst = planner.consumeProfile(in: .default)
+        let first = try #require(consumedFirst)
+        #expect(first.focusDuration == 50 * 60)
         #expect(planner.pendingOverride == nil)
 
         let consumed = planner.consumeProfile(in: .default)
