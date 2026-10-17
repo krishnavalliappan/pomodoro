@@ -47,7 +47,7 @@ a check that `LSUIElement` is set in the built `Info.plist`. Artifacts:
 ## Snapshot tests
 
 Snapshot tests use [swift-snapshot-testing](https://github.com/pointfreeco/swift-snapshot-testing)
-and store references in `Snapshots/` as `<TestClass>/<view>.<variant>.png`.
+and store references in `Snapshots/` as `<View>.<variant>.png` (for example `PopoverView.dark.png`).
 
 **Strategy: commit references and record when one is missing.** If a reference doesn't exist,
 the test writes it and then **fails** on purpose, so a PR can't go green without a committed

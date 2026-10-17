@@ -54,6 +54,7 @@ jobs:
           mkdir -p "$SNAPSHOT_ARTIFACTS"
           set -o pipefail
           TEST_RUNNER_SNAPSHOT_ARTIFACTS="$SNAPSHOT_ARTIFACTS" \
+          TEST_RUNNER_OS_ACTIVITY_MODE=disable \
           xcodebuild \
             -project Pomodoro.xcodeproj \
             -scheme Pomodoro \
