@@ -965,3 +965,191 @@ struct TimerEngineResetTests {
         #expect(engine.nextBoundary == nil)
     }
 }
+
+struct TimerEngineDurationValidationTests {
+    private let everythingZero = TimerConfiguration(
+        focusDuration: 0, shortBreakDuration: 0, longBreakDuration: 0,
+        autoStartBreaks: true, autoStartFocus: true
+    )
+
+    @Test func zeroDurationsAreRaisedToTheMinimumAndTheChainTerminates() {
+        let (engine, clock) = makeEngine(everythingZero)
+        engine.start()
+        #expect(engine.snapshot().plannedDuration == TimerEngine.minimumPhaseDuration)
+        #expect(engine.nextBoundary == t0 + TimerEngine.minimumPhaseDuration)
+        clock.advance(by: 30)
+        let events = engine.reconcile()
+        #expect(kinds(events).filter { $0.hasPrefix("started:") }.count == TimerEngine.maxChainedAutoStarts)
+        #expect(isOvertime(engine.status))
+    }
+
+    @Test(arguments: [0, -60] as [TimeInterval])
+    func nonPositiveOverridesAreRaisedToTheMinimum(duration: TimeInterval) {
+        let (engine, clock) = makeEngine(everythingZero)
+        engine.start(duration: duration)
+        #expect(engine.snapshot().plannedDuration == TimerEngine.minimumPhaseDuration)
+        clock.advance(by: 3600)
+        engine.reconcile()
+        #expect(engine.phase != .idle)
+    }
+
+    @Test func negativeConfiguredDurationsAreRaisedToTheMinimum() {
+        let (engine, _) = makeEngine(TimerConfiguration(focusDuration: -300))
+        engine.start()
+        #expect(engine.snapshot().plannedDuration == TimerEngine.minimumPhaseDuration)
+    }
+
+    @Test func restoredZeroLengthPhaseTerminates() {
+        var state = TimerState()
+        state.phase = .focus
+        state.status = .running
+        state.phaseStartedAt = t0
+        state.plannedDuration = 0
+        let clock = TestClock(now: t0 + 10)
+        let engine = TimerEngine(configuration: everythingZero, clock: clock, state: state)
+        let events = engine.reconcile()
+        #expect(kinds(events).first == "focusEnded")
+        #expect(kinds(events).filter { $0.hasPrefix("started:") }.count <= TimerEngine.maxChainedAutoStarts)
+    }
+
+    @Test func shortPhasesWithinTheCapChainNormally() {
+        let (engine, clock) = makeEngine(TimerConfiguration(
+            focusDuration: 1, shortBreakDuration: 1, longBreakInterval: 0,
+            nudgeInterval: nil, autoStartBreaks: true, autoStartFocus: true
+        ))
+        engine.start()
+        clock.advance(by: 3)
+        #expect(kinds(engine.reconcile()) == [
+            "focusEnded", "recorded:completed", "started:shortBreak",
+            "breakEnded", "started:focus",
+            "focusEnded", "recorded:completed", "started:shortBreak",
+        ])
+        #expect(engine.status == .running)
+    }
+}
+
+struct TimerEngineReviewFollowUpTests {
+    @Test func autoStartFocusAtExactlyTheGrace() {
+        let (engine, clock) = makeEngine(TimerConfiguration(autoStartFocus: true))
+        engine.start(phase: .shortBreak)
+        clock.advance(by: 300 + TimerEngine.autoStartFocusGrace)
+        #expect(kinds(engine.reconcile()) == ["breakEnded", "started:focus"])
+        #expect(engine.state.phaseStartedAt == t0 + 300)
+    }
+
+    @Test func extendInOvertimeAbsorbsAccruedOvertimeIntoThePlan() throws {
+        let (engine, clock) = makeEngine()
+        engine.start()
+        clock.advance(by: focus + 300)
+        engine.reconcile()
+        engine.extend(by: 300)
+        clock.advance(by: 400)
+        #expect(kinds(engine.reconcile()) == ["focusEnded"])
+        let record = try #require(records(engine.stopAndLog()).first)
+        #expect(record.plannedDuration == focus + 600)
+        #expect(record.activeDuration == focus + 700)
+        #expect(record.overtime == 100)
+        #expect(record.outcome == .completed)
+    }
+
+    @Test func extendInPausedOvertimeResumesRunning() throws {
+        let (engine, clock) = makeEngine()
+        engine.start()
+        clock.advance(by: focus + 300)
+        engine.reconcile()
+        engine.pause()
+        clock.advance(by: 200)
+        engine.extend(by: 300)
+        engine.resume()
+        #expect(engine.status == .running)
+        #expect(engine.nextBoundary == t0 + focus + 800)
+        clock.advance(by: 400)
+        #expect(kinds(engine.reconcile()) == ["focusEnded"])
+        let record = try #require(records(engine.stopAndLog()).first)
+        #expect(record.plannedDuration == focus + 600)
+        #expect(record.activeDuration == focus + 700)
+        #expect(record.pausedDuration == 200)
+        #expect(record.overtime == 100)
+        #expect(record.outcome == .completed)
+    }
+
+    @Test func nextBreakPreviewCountsAFocusThatHasReachedItsEnd() {
+        let (engine, clock) = makeEngine()
+        for _ in 0..<3 { _ = completeFocus(engine, clock) }
+        engine.start()
+        #expect(engine.nextBreakPhase == .shortBreak)
+        clock.advance(by: focus + 60)
+        engine.reconcile()
+        #expect(engine.nextBreakPhase == .longBreak)
+        engine.startBreak()
+        #expect(engine.phase == .longBreak)
+    }
+
+    @Test func autoCycleHitsIndependentlyComputedBoundaries() {
+        let (engine, clock) = makeEngine(TimerConfiguration(longBreakInterval: 2, autoStartBreaks: true, autoStartFocus: true))
+        engine.start()
+        let schedule: [(TimeInterval, [String])] = [
+            (1500, ["focusEnded", "recorded:completed", "started:shortBreak"]),
+            (1800, ["breakEnded", "started:focus"]),
+            (3300, ["focusEnded", "recorded:completed", "started:longBreak"]),
+            (4200, ["breakEnded", "started:focus"]),
+            (5700, ["focusEnded", "recorded:completed", "started:shortBreak"]),
+        ]
+        for (offset, expected) in schedule {
+            #expect(engine.nextBoundary == t0 + offset)
+            clock.now = t0 + offset - 1
+            #expect(engine.reconcile().isEmpty)
+            clock.now = t0 + offset
+            #expect(kinds(engine.reconcile()) == expected)
+        }
+    }
+
+    @Test func overtimeWithNudgesRoundTripsAndContinues() throws {
+        let (engine, clock) = makeEngine()
+        engine.start()
+        clock.now = t0 + focus + 700
+        engine.reconcile()
+        clock.now = t0 + focus + 1300
+        #expect(kinds(engine.reconcile()) == ["nudge:1300"])
+        let data = try JSONEncoder().encode(engine.state)
+        let decoded = try JSONDecoder().decode(TimerState.self, from: data)
+        #expect(decoded == engine.state)
+        let restored = TimerEngine(clock: clock, state: decoded)
+        #expect(restored.nextBoundary == t0 + focus + 1800)
+        #expect(restored.reconcile().isEmpty)
+        clock.now = t0 + focus + 1800
+        #expect(kinds(restored.reconcile()) == ["nudge:1800"])
+    }
+
+    @Test func silencedOvertimeRoundTrips() throws {
+        let (engine, clock) = makeEngine()
+        engine.start()
+        clock.now = t0 + focus + 100
+        engine.reconcile()
+        engine.keepGoing()
+        let data = try JSONEncoder().encode(engine.state)
+        let restored = TimerEngine(clock: clock, state: try JSONDecoder().decode(TimerState.self, from: data))
+        #expect(restored.nextBoundary == nil)
+        clock.advance(by: 7200)
+        #expect(restored.reconcile().isEmpty)
+        #expect(restored.snapshot().overtime == 7300)
+    }
+
+    @Test func awaitingDecisionRoundTrips() throws {
+        let (engine, clock) = makeEngine(TimerConfiguration(overtimeEnabled: false))
+        engine.start()
+        clock.now = t0 + focus + 100
+        engine.reconcile()
+        let data = try JSONEncoder().encode(engine.state)
+        let restored = TimerEngine(
+            configuration: TimerConfiguration(overtimeEnabled: false),
+            clock: clock,
+            state: try JSONDecoder().decode(TimerState.self, from: data)
+        )
+        clock.advance(by: 600)
+        #expect(restored.reconcile().isEmpty)
+        let record = try #require(records(restored.startBreak()).first)
+        #expect(record.endedAt == t0 + focus)
+        #expect(record.outcome == .completed)
+    }
+}

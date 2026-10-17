@@ -82,8 +82,13 @@ public struct TimerState: Sendable, Equatable, Codable {
     public var pausedAt: Date?
     public var taskID: UUID?
     public var completedFocusesInCycle = 0
-    public var nudgesEmitted = 0
+    /// The current plan's end event has fired. Cleared when a phase begins or is extended.
+    public var endDelivered = false
+    /// Overtime (seconds past the phase end) that the next nudge counts from: the last nudge, or 0.
+    public var nudgeAnchor: TimeInterval = 0
     public var nudgesSilenced = false
+    /// The latest time the engine has seen, used to detect the clock going backwards.
+    public var lastObservedAt: Date?
 
     public init() {}
 

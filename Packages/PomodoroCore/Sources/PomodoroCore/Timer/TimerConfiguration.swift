@@ -1,6 +1,8 @@
 import Foundation
 
 /// The durations and behaviour flags the engine needs. Profiles and presets map onto this.
+/// Durations below `TimerEngine.minimumPhaseDuration` (including zero or negative) are raised
+/// to it when a phase begins, rather than rejected.
 public struct TimerConfiguration: Sendable, Equatable, Codable {
     public var focusDuration: TimeInterval
     public var shortBreakDuration: TimeInterval
