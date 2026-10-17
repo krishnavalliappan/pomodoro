@@ -213,7 +213,6 @@ struct PhaseStyle {
 
     init(_ snapshot: TimerSnapshot) {
         let overtime = TimerReadout(snapshot).isOvertime
-        switch snapshot.phase {
         let (title, symbol) =
             switch snapshot.phase {
             case .idle: ("Ready to focus", "timer")
