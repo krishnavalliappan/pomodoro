@@ -23,13 +23,15 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         super.init()
 
         popover.behavior = .transient
-        popover.contentSize = PopoverView.size
         popover.delegate = self
         let actions = PopoverActions(
             openPlanner: { [weak self] in self?.open(.planner) },
             openSettings: { [weak self] in self?.open(.settings) }
         )
-        popover.contentViewController = NSHostingController(rootView: PopoverView(model: model, actions: actions))
+        let host = NSHostingController(rootView: PopoverView(model: model, actions: actions))
+        // The popover follows the view's height as the task list folds, empties or fills.
+        host.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = host
 
         if let button = statusItem.button {
             button.target = self

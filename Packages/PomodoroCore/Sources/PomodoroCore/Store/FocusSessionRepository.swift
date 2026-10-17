@@ -104,7 +104,7 @@ public struct FocusSessionRepository: Sendable {
             .order(FocusSession.Columns.start)
     }
 
-    private static func actuals(_ db: Database, taskIDs: [UUID]) throws -> [UUID: TaskActuals] {
+    static func actuals(_ db: Database, taskIDs: [UUID]) throws -> [UUID: TaskActuals] {
         guard !taskIDs.isEmpty else { return [:] }
         let rows = try Row.fetchAll(db, sql: """
             SELECT taskID,

@@ -67,6 +67,13 @@ public struct TaskRepository: Sendable {
         }
     }
 
+    /// Writes only the fields `edit` names, merged into the row as it is now. Returns the
+    /// merged row.
+    @discardableResult
+    public func edit(id: UUID, _ edit: TaskEdit) throws -> TaskItem {
+        try modify(id: id) { $0 = edit.applied(to: $0) }
+    }
+
     /// Moves a task to a day, or back to the inbox with `nil`.
     @discardableResult
     public func schedule(id: UUID, on day: CivilDay?) throws -> TaskItem {
@@ -117,7 +124,71 @@ public struct TaskRepository: Sendable {
         database.observe { db in try TaskItem.all().inListOrder().fetchAll(db) }
     }
 
+    /// Today, inbox, upcoming and their actuals, read in one transaction so a task list never
+    /// pairs rows with actuals from a different commit. The day is fixed by `now`.
+    public func overview(now: Date = Date()) throws -> TaskOverview {
+        try writer.read { db in try overview(db, now: now) }
+    }
+
+    /// Same day-rollover contract as `observeToday`.
+    public func observeOverview(now: Date = Date()) -> AsyncStream<TaskOverview> {
+        database.observe { db in try overview(db, now: now) }
+    }
+
+    /// Creates the task a quick-add line describes and, when it has a start time, a block
+    /// linked to it, in one transaction. `defaultDay` schedules lines that name no day.
+    /// Returns `nil` for a blank title.
+    @discardableResult
+    public func create(
+        _ entry: QuickAddResult,
+        defaultDay: CivilDay?,
+        createdAt: Date = Date()
+    ) throws -> (task: TaskItem, block: TimeBlock?)? {
+        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return nil }
+        let slot = entry.blockStart.flatMap { start in entry.blockDuration.map { (start: start, duration: $0) } }
+        if let slot, !(slot.duration > 0 && slot.duration.isFinite) {
+            throw StoreError.invalidDuration(slot.duration)
+        }
+        return try writer.write { db in
+            let maxIndex = try TaskItem.select(max(TaskItem.Columns.sortIndex), as: Int.self).fetchOne(db)
+            let task = TaskItem(
+                title: title,
+                estimatePomodoros: entry.estimate,
+                tag: entry.tag,
+                sortIndex: (maxIndex ?? -1) + 1,
+                createdAt: createdAt,
+                scheduledDay: entry.day ?? defaultDay
+            )
+            try task.insert(db)
+            let block = slot.map { TimeBlock(taskID: task.id, title: title, start: $0.start, duration: $0.duration) }
+            try block?.insert(db)
+            return (task, block)
+        }
+    }
+
     // MARK: - Private
+
+    private func overview(_ db: Database, now: Date) throws -> TaskOverview {
+        let today = try todayRequest(now: now).fetchAll(db)
+        let inbox = try inboxRequest(now: now).fetchAll(db)
+        let upcoming = try upcomingRequest(now: now).fetchAll(db)
+        let ids = (today + inbox + upcoming).map(\.id)
+        return TaskOverview(
+            day: database.day(containing: now),
+            today: today,
+            inbox: inbox,
+            upcoming: upcoming,
+            actuals: try FocusSessionRepository.actuals(db, taskIDs: ids)
+        )
+    }
+
+    private func upcomingRequest(now: Date) -> QueryInterfaceRequest<TaskItem> {
+        let today = database.day(containing: now)
+        return TaskItem
+            .filter(TaskItem.Columns.scheduledDay > today && TaskItem.Columns.isDone == false)
+            .order(TaskItem.Columns.scheduledDay, TaskItem.Columns.sortIndex, TaskItem.Columns.createdAt)
+    }
 
     // ISO day strings compare chronologically, so SQL can order them directly.
     private func todayRequest(now: Date) -> QueryInterfaceRequest<TaskItem> {
@@ -152,5 +223,58 @@ public struct TaskRepository: Sendable {
 extension QueryInterfaceRequest where RowDecoder == TaskItem {
     func inListOrder() -> Self {
         order(TaskItem.Columns.sortIndex, TaskItem.Columns.createdAt)
+    }
+}
+
+/// Everything a task list shows for one day.
+public struct TaskOverview: Equatable, Sendable {
+    public var day: CivilDay
+    /// Scheduled for `day`, plus unfinished ones from earlier days, in list order.
+    public var today: [TaskItem]
+    /// Unscheduled: open ones, plus ones finished on `day`.
+    public var inbox: [TaskItem]
+    /// Unfinished tasks scheduled after `day`, soonest first.
+    public var upcoming: [TaskItem]
+    /// Keyed by task; tasks without sessions are absent.
+    public var actuals: [UUID: TaskActuals]
+
+    public init(
+        day: CivilDay,
+        today: [TaskItem] = [],
+        inbox: [TaskItem] = [],
+        upcoming: [TaskItem] = [],
+        actuals: [UUID: TaskActuals] = [:]
+    ) {
+        self.day = day
+        self.today = today
+        self.inbox = inbox
+        self.upcoming = upcoming
+        self.actuals = actuals
+    }
+
+    public func actuals(for id: UUID) -> TaskActuals {
+        actuals[id] ?? .zero
+    }
+
+    /// `upcoming`, one group per day, soonest first. The store orders by day before list
+    /// order, so a drag can only reorder within one group.
+    public var upcomingByDay: [DayGroup] {
+        var groups: [DayGroup] = []
+        for task in upcoming {
+            guard let day = task.scheduledDay else { continue }
+            if groups.last?.day == day {
+                groups[groups.count - 1].tasks.append(task)
+            } else {
+                groups.append(DayGroup(day: day, tasks: [task]))
+            }
+        }
+        return groups
+    }
+
+    public struct DayGroup: Identifiable, Equatable, Sendable {
+        public var day: CivilDay
+        public var tasks: [TaskItem]
+
+        public var id: CivilDay { day }
     }
 }

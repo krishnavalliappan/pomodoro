@@ -8,7 +8,8 @@ import Foundation
 /// `Prep Monday standup notes` keeps its title. A bare duration also needs an `@time`
 /// somewhere, because it only sizes a block. Within a kind the first token wins and later
 /// ones are still removed. Everything else stays in the title verbatim. A leading `\`
-/// makes a token literal and, being plain text, ends the metadata group.
+/// makes a token literal and, being plain text, ends the metadata group. A `#` followed only by
+/// digits (`#42`) is a reference, not a tag, so `Review PR #42` keeps its number.
 public struct QuickAddParser: Sendable {
     public var calendar: Calendar
     public var pomodoroLength: TimeInterval
@@ -127,7 +128,7 @@ public struct QuickAddParser: Sendable {
 
     private static func tag(_ body: Substring) -> String? {
         let allowed = body.allSatisfy { $0.isLetter || $0.isNumber || "_-/".contains($0) }
-        return !body.isEmpty && allowed ? String(body) : nil
+        return !body.isEmpty && allowed && !isDigits(body) ? String(body) : nil
     }
 
     private static func time(_ body: Substring) -> (hour: Int, minute: Int)? {

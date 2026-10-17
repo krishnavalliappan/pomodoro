@@ -229,6 +229,17 @@ public final class TimerEngine {
         }
     }
 
+    /// Re-attributes the phase in progress to `taskID`, so the running focus records it, and the
+    /// focus a break leads into (by skip or auto-start) inherits it. Timing is untouched. Idle
+    /// does nothing: `start(taskID:)` picks the task there.
+    @discardableResult
+    public func assignTask(_ taskID: UUID?) -> [TimerEvent] {
+        perform { _, _ in
+            guard state.phase != .idle else { return }
+            state.taskID = taskID
+        }
+    }
+
     /// Dismisses the end-of-phase prompt: keep counting overtime, without further nudges.
     @discardableResult
     public func keepGoing() -> [TimerEvent] {

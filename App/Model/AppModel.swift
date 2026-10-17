@@ -21,14 +21,19 @@ final class AppModel {
     static let refreshSlack: TimeInterval = 0.01
 
     private(set) var snapshot: TimerSnapshot
+    /// `snapshot.phase`, for views that must not re-render every second.
+    private(set) var phase: TimerPhase
     /// Set while the end of a phase is waiting on the user: *Start break / +5 min / Keep going*.
     private(set) var prompt: EndPrompt? = nil
     private(set) var settings: AppSettings
     private(set) var planner = SessionPlanner()
     private(set) var completedToday = 0
     private(set) var isPopoverVisible = false
-    /// Always `nil` until tasks land (#10).
-    private(set) var currentTaskTitle: String? = nil
+    /// The task the current focus counts toward, or the next one will. It outlives a stop, so
+    /// the next start picks it up again.
+    private(set) var selectedTaskID: UUID? = nil
+    /// Its own observable, so task edits don't re-render the timer.
+    let tasks: TaskStore
 
     typealias EngineUpdate = @MainActor (TimerEngine, [TimerEvent]) -> Void
 
@@ -51,6 +56,7 @@ final class AppModel {
     @ObservationIgnored private var lastPersisted: PersistedTimer?
     @ObservationIgnored private var boundaryTimer: (any ScheduledTimer)?
     @ObservationIgnored private var refreshTimer: (any ScheduledTimer)?
+    @ObservationIgnored private var dayMonitor: DayChangeMonitor?
 
     init(
         clock: any TimeSource = SystemClock(),
@@ -81,6 +87,10 @@ final class AppModel {
         self.lastPersisted = restored
         self.onEngineUpdate = onEngineUpdate
         self.snapshot = engine.snapshot()
+        self.phase = engine.phase
+        self.tasks = TaskStore(database: database, clock: clock)
+        self.selectedTaskID = engine.taskID
+        tasks.ensureLoaded(engine.taskID)
         sound.settings = settings.sounds
         // Every focus picks its profile here, including one auto-started inside a catch-up.
         engine.configurationForFocus = { [weak self] in self?.configurationForFocus() }
@@ -98,7 +108,7 @@ final class AppModel {
             // An in-memory queue only fails on programmer error.
             database = try! .inMemory()
         }
-        return AppModel(
+        let model = AppModel(
             settingsStore: UserDefaultsSettingsStore(),
             timerStore: UserDefaultsTimerStateStore(),
             database: database,
@@ -106,6 +116,8 @@ final class AppModel {
             scheduler: RunLoopScheduler(),
             onEngineUpdate: onEngineUpdate
         )
+        model.observeDayChanges()
+        return model
     }
 
     // MARK: - Reading
@@ -113,6 +125,13 @@ final class AppModel {
     var statusTitle: String? {
         MenuBarTitle.text(for: snapshot, mode: settings.menuBarDisplay, taskTitle: currentTaskTitle)
     }
+
+    var currentTaskTitle: String? {
+        tasks.task(id: selectedTaskID)?.title
+    }
+
+    /// A focus is under way, so picking a task re-attributes it rather than starting one.
+    var isFocusing: Bool { phase == .focus }
 
     var pendingOneOff: SessionOneOff? { planner.pending }
     var pendingOverride: SessionOverride? { planner.pendingOverride }
@@ -128,7 +147,18 @@ final class AppModel {
 
     // MARK: - Timer actions
 
-    func startFocus() { handle(engine.start(phase: .focus)) }
+    func startFocus() { handle(engine.start(phase: .focus, taskID: selectedTaskID)) }
+
+    /// ▶ on a task: during a focus it switches the running session to the task, otherwise it
+    /// starts a focus on it.
+    func startFocus(on taskID: UUID) {
+        if isFocusing {
+            selectTask(taskID)
+        } else {
+            setSelectedTask(taskID)
+            startFocus()
+        }
+    }
 
     /// Space: start when idle, otherwise pause or resume.
     func toggle() {
@@ -155,6 +185,55 @@ final class AppModel {
     /// Catches up after the boundary timer fires, and after wake or a clock change.
     func reconcile() {
         handle(engine.reconcile())
+    }
+
+    // MARK: - Tasks
+
+    /// Picks the current task. Mid-phase the running session is re-attributed, so its whole
+    /// time counts toward the new task.
+    func selectTask(_ taskID: UUID?) {
+        setSelectedTask(taskID)
+        guard engine.phase != .idle, engine.taskID != taskID else { return }
+        handle(engine.assignTask(taskID))
+    }
+
+    func quickAddParser() -> QuickAddParser {
+        QuickAddParser(calendar: database.calendar, pomodoroLength: settings.defaultProfile.focusDuration)
+    }
+
+    func parseQuickAdd(_ text: String) -> QuickAddResult {
+        quickAddParser().parse(text, now: clock.now)
+    }
+
+    /// Adds a task from a quick-add line, plus a block if it names a start time. A line that
+    /// names no day goes to today, or the inbox. Blank titles add nothing.
+    @discardableResult
+    func addTask(_ text: String, toInbox: Bool = false) -> TaskItem? {
+        tasks.add(parseQuickAdd(text), defaultDay: toInbox ? nil : tasks.today)
+    }
+
+    func deleteTask(_ id: UUID) {
+        // Sessions can't reference a deleted task, so the running one lets go of it first.
+        if selectedTaskID == id { selectTask(nil) }
+        tasks.delete(id)
+    }
+
+    // MARK: - Day rollover
+
+    func observeDayChanges(
+        center: NotificationCenter = .default,
+        workspaceCenter: NotificationCenter = DayChangeMonitor.workspaceCenter
+    ) {
+        dayMonitor?.stop()
+        dayMonitor = DayChangeMonitor(center: center, workspaceCenter: workspaceCenter) { [weak self] reason in
+            self?.dayMayHaveChanged(reason)
+        }
+    }
+
+    func dayMayHaveChanged(_ reason: DayChangeMonitor.Reason) {
+        tasks.rollOverIfNeeded(force: reason == .timeZoneChanged)
+        refreshCompletedToday()
+        if isPopoverVisible { tasks.refreshSuggestion() }
     }
 
     // MARK: - Planning
@@ -199,6 +278,8 @@ final class AppModel {
     /// Cancels pending timers and the tick. The run loop would otherwise keep a one-shot timer
     /// alive after the model is gone.
     func shutdown() {
+        dayMonitor?.stop()
+        dayMonitor = nil
         boundaryTimer?.cancel()
         boundaryTimer = nil
         refreshTimer?.cancel()
@@ -214,6 +295,7 @@ final class AppModel {
         if visible {
             refreshSnapshot()
             refreshCompletedToday()
+            tasks.refreshSuggestion()
         }
         scheduleRefresh()
     }
@@ -255,10 +337,21 @@ final class AppModel {
     private func logSession(_ record: FocusSessionRecord) {
         do {
             try database.sessions.insert(FocusSession(record: record))
+        } catch where record.taskID != nil {
+            // The task is gone (deleted elsewhere); keep the time, unlinked, as a deletion would.
+            Self.log.error("logging a focus session failed, retrying without its task: \(String(describing: error), privacy: .public)")
+            var unlinked = record
+            unlinked.taskID = nil
+            try? database.sessions.insert(FocusSession(record: unlinked))
         } catch {
             Self.log.error("logging a focus session failed: \(String(describing: error), privacy: .public)")
         }
         refreshCompletedToday()
+    }
+
+    private func setSelectedTask(_ taskID: UUID?) {
+        tasks.ensureLoaded(taskID)
+        if taskID != selectedTaskID { selectedTaskID = taskID }
     }
 
     /// Consumes the pending one-off as a focus begins. It stays in force through the break that
@@ -291,6 +384,7 @@ final class AppModel {
     private func refreshSnapshot() {
         let snapshot = engine.snapshot()
         self.snapshot = snapshot
+        if snapshot.phase != phase { phase = snapshot.phase }
         let waiting =
             switch snapshot.status {
             case .awaitingDecision: snapshot.phase != .idle
