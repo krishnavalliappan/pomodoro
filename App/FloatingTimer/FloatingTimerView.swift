@@ -59,7 +59,8 @@ struct FloatingTimerView: View {
         }
         .buttonStyle(.plain)
         .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
-        .gesture(dragGesture)
+        // A plain gesture loses to the button, which would expand on every drag.
+        .highPriorityGesture(dragGesture)
         .help("Show the full timer")
         .accessibilityLabel("Expand timer")
     }
@@ -129,7 +130,7 @@ struct FloatingTimerView: View {
     /// Kept off the main row: handy, but not worth hitting by accident.
     private var extras: some View {
         HStack(spacing: 4) {
-            if stage.status == .running {
+            if stage.status != .paused {
                 FloatingButton(text: "+5", help: "Add 5 minutes", raised: true) { model.extend(minutes: 5) }
             }
             if stage.phase == .focus, model.openCurrentTask != nil {

@@ -114,7 +114,11 @@ final class SoundService {
 
     /// Nothing plays while set, the tick included.
     var isMuted = false {
-        didSet { if isMuted { stopTicking() } }
+        didSet {
+            // Silences a chime already sounding, not just the next one.
+            applyVolume()
+            if isMuted { stopTicking() }
+        }
     }
 
     private let players: [SoundID: any SoundPlayer]
@@ -207,7 +211,7 @@ final class SoundService {
     }
 
     private func applyVolume() {
-        let volume = Float(settings.volume)
+        let volume = isMuted ? 0 : Float(settings.volume)
         for player in players.values { player.volume = volume }
     }
 }

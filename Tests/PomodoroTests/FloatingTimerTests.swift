@@ -49,6 +49,19 @@ final class FloatingTimerModelTests: XCTestCase {
         XCTAssertEqual(h.plays(.start), 1, "heard again once unmuted")
     }
 
+    /// A chime already sounding goes quiet too, and comes back at the set volume.
+    func testMuteSilencesAChimeAlreadyPlaying() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.startFocus()
+        let start = try XCTUnwrap(h.players[.start])
+        XCTAssertGreaterThan(start.volume, 0)
+        model.toggleMute()
+        XCTAssertEqual(start.volume, 0)
+        model.toggleMute()
+        XCTAssertEqual(start.volume, Float(model.settings.sounds.volume))
+    }
+
     func testMuteStopsTheTick() throws {
         let h = try ModelHarness()
         h.updateSettings { $0.sounds.tick = .tick }
@@ -218,12 +231,13 @@ final class FloatingTimerSnapshotTests: XCTestCase {
         assertCard(model, "paused")
     }
 
+    /// Hovered, so the row shows +5: time can still be added once it has run out.
     func testTimesUp() throws {
         let h = try ModelHarness()
         let model = h.makeModel()
         model.startFocus()
         h.scheduler.advance(by: 25 * 60 + 5)
-        assertCard(model, "timesUp")
+        assertCard(model, "timesUp", isHovering: true)
     }
 
     func testCollapsed() throws {
