@@ -14,6 +14,11 @@ struct PopoverActions {
 struct PopoverView: View {
     static let width: CGFloat = 320
 
+    /// Whole points, so the popover and its snapshots agree on one height on any display scale.
+    static func integralSize(_ fitting: CGSize) -> CGSize {
+        CGSize(width: fitting.width.rounded(.up), height: fitting.height.rounded(.up))
+    }
+
     let model: AppModel
     var actions = PopoverActions()
     /// Pre-filled quick-add text, for snapshots of the preview.
@@ -416,7 +421,9 @@ struct PresetRow: View {
             } else {
                 TextField("Custom", text: $custom)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 76)
+                    // AppKit sizes the field itself, and now and then a point taller; the popover
+                    // takes its content's height, so that point moved the whole layout (#38).
+                    .frame(width: 76, height: 23)
                     .overlay(
                         RoundedRectangle(cornerRadius: 5)
                             .strokeBorder(Color(nsColor: .systemRed), lineWidth: isInvalid ? 1 : 0)
