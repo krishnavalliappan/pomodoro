@@ -14,8 +14,9 @@ extension ProcessInfo: ActivityScheduling {}
 /// The pre-scheduled notification already shows the banner on time while napping, but App Nap
 /// can defer the app's own boundary timer by seconds to minutes, and with it the chime (played
 /// in-app, see `NotificationService`) and the menu-bar title flipping to overtime. The activity
-/// costs nothing by itself: it only stops the system from coalescing and deferring our timers.
-/// Paused, idle and silenced-overtime states release it, so the app naps normally then.
+/// schedules no work itself, but while it is held the whole process is exempt from App Nap
+/// throttling, so it is released when paused, idle or in silenced overtime. It can't make the
+/// chime play while the Mac is actually asleep; `SystemEvents` reconciles on wake instead.
 @MainActor
 final class AppNapGuard {
     nonisolated static let options: ProcessInfo.ActivityOptions = .userInitiatedAllowingIdleSystemSleep
