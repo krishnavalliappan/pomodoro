@@ -341,4 +341,90 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(tabs.tabViewItems.map(\.label), SettingsPane.allCases.map(\.title))
         XCTAssertTrue(tabs.tabViewItems.allSatisfy { $0.image != nil }, "every tab has its symbol")
     }
+
+    // MARK: Pending drafts
+
+    /// The real Settings window, shown, with the model's updates counted.
+    private func openSettings() throws -> (ModelHarness, AppModel, NSWindow, NSTabViewController, () -> Int) {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        var updates = 0
+        model.onEngineUpdate = { _, _ in updates += 1 }
+        let window = SettingsWindow.make(model: model, launchAtLogin: LaunchAtLogin(service: FakeLoginItem(), model: model))
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        let tabs = try XCTUnwrap(window.contentViewController as? NSTabViewController)
+        spin()
+        return (h, model, window, tabs, { updates })
+    }
+
+    private func spin() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    private func editableFields(in view: NSView) -> [NSTextField] {
+        let own = (view as? NSTextField).map { $0.isEditable ? [$0] : [] } ?? []
+        return own + view.subviews.flatMap(editableFields)
+    }
+
+    /// Types into the Timer tab's Focus field without pressing Return or moving focus.
+    private func typeFocusMinutes(_ text: String, in window: NSWindow, tabs: NSTabViewController) throws -> NSTextField {
+        let pane = try XCTUnwrap(tabs.tabViewItems[tabs.selectedTabViewItemIndex].viewController?.view)
+        let field = try XCTUnwrap(editableFields(in: pane).first, "the Focus minutes field")
+        XCTAssertEqual(field.stringValue, "25")
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText(text, replacementRange: editor.selectedRange())
+        spin()
+        return field
+    }
+
+    func testClosingSettingsCommitsTheTypedMinutesOnce() throws {
+        let (h, model, window, tabs, updates) = try openSettings()
+        _ = try typeFocusMinutes("999", in: window, tabs: tabs)
+        XCTAssertEqual(updates(), 0, "typing alone saves nothing")
+
+        window.performClose(nil)
+        XCTAssertEqual(updates(), 1, "committed before close returns")
+        XCTAssertEqual(model.settings.defaultProfile.focusDuration, 180 * 60, "clamped")
+        XCTAssertEqual(h.settingsStore.load().defaultProfile.focusDuration, 180 * 60)
+        spin()
+        XCTAssertEqual(updates(), 1, "the later focus loss writes nothing more")
+
+        window.makeKeyAndOrderFront(nil)
+        spin()
+        window.performClose(nil)
+        spin()
+        XCTAssertEqual(updates(), 1, "reopening and closing again saves nothing")
+    }
+
+    func testSwitchingTabsCommitsTheTypedMinutesToTheOriginalDefaultOnce() throws {
+        let (h, model, window, tabs, updates) = try openSettings()
+        defer { window.close() }
+        let field = try typeFocusMinutes("40", in: window, tabs: tabs)
+
+        tabs.selectedTabViewItemIndex = SettingsPane.allCases.firstIndex(of: .presets)!
+        XCTAssertEqual(updates(), 1)
+        XCTAssertEqual(h.settingsStore.load().defaultProfile.focusDuration, 40 * 60)
+        spin()
+        XCTAssertEqual(updates(), 1)
+
+        model.updateSettings { try? $0.setDefaultPreset(id: Preset.deep.id) }
+        tabs.selectedTabViewItemIndex = SettingsPane.allCases.firstIndex(of: .timer)!
+        spin()
+        XCTAssertEqual(updates(), 2, "only the default change")
+        XCTAssertEqual(model.settings.preset(id: Preset.classic.id)?.profile.focusDuration, 40 * 60)
+        XCTAssertEqual(model.settings.preset(id: Preset.deep.id), .deep)
+        XCTAssertEqual(field.stringValue, "50", "shows the new default, not the old draft")
+    }
+
+    func testResigningActiveCommitsTheTypedMinutes() throws {
+        let (h, _, window, tabs, updates) = try openSettings()
+        defer { window.close() }
+        _ = try typeFocusMinutes("30", in: window, tabs: tabs)
+        NotificationCenter.default.post(name: NSApplication.willResignActiveNotification, object: NSApp)
+        XCTAssertEqual(updates(), 1)
+        XCTAssertEqual(h.settingsStore.load().defaultProfile.focusDuration, 30 * 60)
+    }
 }

@@ -28,6 +28,12 @@ extension Binding where Value == TimeInterval {
     }
 }
 
+extension Notification.Name {
+    /// Posted by the Settings window before it closes or switches tab, and as the app quits or
+    /// resigns active: its hosted fields get no reliable disappear or focus-loss event then.
+    static let commitSettingsDrafts = Notification.Name("commitSettingsDrafts")
+}
+
 /// What a minutes field shows while the user types. Only `commit` writes, so the "1" on the way
 /// to "15" never saves settings, reschedules a timer, or becomes an auto-started break's length.
 struct MinutesDraft: Equatable {
@@ -62,7 +68,7 @@ struct MinutesField: View {
     var range: ClosedRange<Int>
     var unit = "min"
     /// For a sheet's local draft: its Save button reads the value without the field losing focus
-    /// first, and writing there saves nothing. Settings bindings commit on Return or focus loss.
+    /// first, and writing there saves nothing. Settings bindings commit on Return, focus loss, or `.commitSettingsDrafts`.
     var writesWhileTyping = false
 
     @State private var draft: MinutesDraft
@@ -115,6 +121,9 @@ struct MinutesField: View {
                         if !focused { draft.commit(to: $minutes) }
                     }
                     .onDisappear { draft.commit(to: $minutes) }
+                    .onReceive(NotificationCenter.default.publisher(for: .commitSettingsDrafts)) { _ in
+                        draft.commit(to: $minutes)
+                    }
                 Text(unit)
                     .foregroundStyle(.secondary)
                 Stepper(title, value: stepped, in: range)

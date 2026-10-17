@@ -118,7 +118,7 @@ struct SettingsBanner: View {
 enum SettingsWindow {
     /// A toolbar-style tab controller: the native preferences look, resizing to each tab.
     static func make(model: AppModel, launchAtLogin: LaunchAtLogin) -> NSWindow {
-        let tabs = NSTabViewController()
+        let tabs = SettingsTabViewController()
         tabs.tabStyle = .toolbar
         for pane in SettingsPane.allCases {
             let host = NSHostingController(rootView: SettingsPaneView(pane: pane, model: model, launchAtLogin: launchAtLogin))
@@ -128,9 +128,44 @@ enum SettingsWindow {
             item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
             tabs.addTabViewItem(item)
         }
-        let window = NSWindow(contentViewController: tabs)
+        let window = SettingsPanelWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
         window.toolbarStyle = .preference
         return window
+    }
+}
+
+/// Commits typed minutes before anything that could leave them unsaved. The window is retained
+/// and reused, so closing it neither removes the hosted views nor ends the field's editing.
+final class SettingsTabViewController: NSTabViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(appWillLeave), name: NSApplication.willTerminateNotification, object: nil)
+        center.addObserver(self, selector: #selector(appWillLeave), name: NSApplication.willResignActiveNotification, object: nil)
+    }
+
+    override func tabView(_ tabView: NSTabView, willSelect tabViewItem: NSTabViewItem?) {
+        commitDrafts()
+        super.tabView(tabView, willSelect: tabViewItem)
+    }
+
+    /// Ends editing first so the field editor hands over its text, then commits synchronously.
+    func commitDrafts() {
+        viewIfLoaded?.window?.makeFirstResponder(nil)
+        NotificationCenter.default.post(name: .commitSettingsDrafts, object: nil)
+    }
+
+    /// Keeps focus in the field: the user may come back and keep typing.
+    @objc private func appWillLeave() {
+        NotificationCenter.default.post(name: .commitSettingsDrafts, object: nil)
+    }
+}
+
+/// `close()` runs for the close button, ⌘W and programmatic closes alike.
+final class SettingsPanelWindow: NSWindow {
+    override func close() {
+        (contentViewController as? SettingsTabViewController)?.commitDrafts()
+        super.close()
     }
 }
