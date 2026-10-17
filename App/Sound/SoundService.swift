@@ -112,6 +112,11 @@ final class SoundService {
         }
     }
 
+    /// Nothing plays while set, the tick included.
+    var isMuted = false {
+        didSet { if isMuted { stopTicking() } }
+    }
+
     private let players: [SoundID: any SoundPlayer]
     private let clock: any TickClock
     private var tickTask: CancelOnDeinit?
@@ -151,13 +156,13 @@ final class SoundService {
 
     /// Plays a sound directly, e.g. to preview a choice in Settings.
     func play(_ sound: SoundID) {
-        guard settings.volume > 0, let player = players[sound] else { return }
+        guard !isMuted, settings.volume > 0, let player = players[sound] else { return }
         player.play()
     }
 
     /// Call when focus starts or resumes; a no-op while the tick sound is `.none`.
     func startTicking() {
-        guard settings.tick != .none, tickTask == nil else { return }
+        guard !isMuted, settings.tick != .none, tickTask == nil else { return }
         // Weak so the cadence never keeps the service alive; releasing it cancels the task.
         tickTask = CancelOnDeinit(Task { [weak self, clock = self.clock] in
             await Self.runCadence(clock: clock) {

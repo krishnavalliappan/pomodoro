@@ -133,6 +133,11 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
     }
 
+    /// From the floating card: brings the popover up, never toggles it away.
+    func openPopover() {
+        if !popover.isShown { showPopover() }
+    }
+
     /// The quick-add hotkey: brings the Tasks tab forward, whichever tab was left showing.
     func focusQuickAdd() {
         if !popover.isShown { showPopover() }

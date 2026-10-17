@@ -11,6 +11,9 @@ struct SoundSettingsView: View {
     var body: some View {
         Form {
             Section {
+                Toggle("Mute all sounds", isOn: model.binding(\.isMuted))
+            }
+            Section {
                 ForEach(SoundEvent.allCases, id: \.self) { event in
                     row(for: event)
                 }

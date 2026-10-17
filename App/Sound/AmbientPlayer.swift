@@ -24,6 +24,8 @@ final class AmbientPlayer {
     /// The policy's level for the timer's state, 0…1.
     private(set) var timerLevel: Double = 0
     private(set) var previewing: AmbientSound.ID?
+    /// Fades everything out, previews too, until unmuted.
+    private(set) var isMuted = false
 
     @ObservationIgnored private let engine: any AmbientAudioEngine
     @ObservationIgnored private let scheduler: any TimerScheduling
@@ -89,6 +91,12 @@ final class AmbientPlayer {
         sync(over: adjusting ? Self.adjustDuration : Self.fadeDuration)
     }
 
+    func setMuted(_ muted: Bool) {
+        guard muted != isMuted else { return }
+        isMuted = muted
+        sync(over: Self.fadeDuration)
+    }
+
     /// Plays one sound for a few seconds whatever the timer is doing, at its level in the mix.
     func preview(_ id: AmbientSound.ID) {
         guard library.sound(id: id) != nil else { return }
@@ -122,6 +130,7 @@ final class AmbientPlayer {
 
     /// What each sound should play at now. Sounds at 0 are left out.
     func desiredVolumes() -> [AmbientSound.ID: Float] {
+        guard !isMuted else { return [:] }
         var volumes: [AmbientSound.ID: Float] = [:]
         for id in mix.sounds {
             let volume = mix.volume * mix.level(for: id) * timerLevel

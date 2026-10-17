@@ -17,6 +17,8 @@ struct AppSettingsTests {
         #expect(s.sounds.volume == 0.8)
         #expect(s.menuBarDisplay == .time)
         #expect(s.launchAtLogin == false)
+        #expect(s.isMuted == false)
+        #expect(s.showsFloatingTimer == true)
         #expect(s.firstWeekday == nil)
     }
 
@@ -36,12 +38,24 @@ struct AppSettingsTests {
         s.sounds = SoundSettings(focusEnd: .bowl, breakEnd: .none, start: .none, tick: .tick, volume: 0.25)
         s.menuBarDisplay = .timeAndTask
         s.launchAtLogin = true
+        s.isMuted = true
+        s.showsFloatingTimer = false
         s.firstWeekday = 2
 
         let decoded = AppSettings.decode(try s.encoded())
         #expect(decoded.settings == s)
         #expect(decoded.storedVersion == AppSettings.currentVersion)
         #expect(!decoded.needsResave)
+    }
+
+    /// Settings saved before these switches existed keep sound on and show the floating timer.
+    @Test func dataWithoutMuteOrFloatingTimerUsesDefaults() {
+        let data = Data(#"{"version": 2, "launchAtLogin": true, "isMuted": "yes"}"#.utf8)
+        let decoded = AppSettings.decode(data)
+        #expect(!decoded.needsResave)
+        #expect(decoded.settings.isMuted == false)
+        #expect(decoded.settings.showsFloatingTimer == true)
+        #expect(decoded.settings.launchAtLogin == true)
     }
 
     @Test func encodesCurrentVersion() throws {

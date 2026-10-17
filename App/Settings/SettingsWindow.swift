@@ -38,10 +38,10 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             switch self {
             case .timer: 550
             case .presets: 330
-            case .sounds: 380
+            case .sounds: 430
             case .menuBar: 170
             case .shortcuts: 240
-            case .general: 210
+            case .general: 280
             }
         return CGSize(width: Self.width, height: height)
     }
