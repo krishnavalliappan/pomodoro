@@ -13,7 +13,7 @@ public enum SettingsStoreError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .newerVersionStored:
-            "These settings were saved by a newer version of Pomodoro and can't be changed here."
+            "Settings were saved by a newer version of Pomodoro."
         }
     }
 }

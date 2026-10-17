@@ -18,6 +18,21 @@ final class SettingsSnapshotTests: XCTestCase {
         assertPane(.presets, model: model)
     }
 
+    func testPresetsWithSelection() throws {
+        let model = try ModelHarness().makeModel()
+        model.updateSettings { try? $0.setDefaultPreset(id: Preset.deep.id) }
+        let pane = SettingsPane.presets
+        Snapshot.assertLightAndDark(
+            PresetsSettingsView(model: model, selection: Preset.classic.id)
+                .frame(width: pane.size.width, height: pane.size.height)
+                .background(Color(nsColor: .windowBackgroundColor)),
+            size: pane.size,
+            name: "SettingsView",
+            variant: "presets-selected",
+            inWindow: true
+        )
+    }
+
     func testSounds() throws {
         let model = try ModelHarness().makeModel()
         model.updateSettings { $0.sounds.tick = .tick }

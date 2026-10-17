@@ -11,6 +11,13 @@ struct PomodoroApp: App {
         Settings {
             EmptyView()
         }
+        .commands {
+            // The scene's own Settings item would open the empty window above.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { appDelegate.showSettings() }
+                    .keyboardShortcut(",")
+            }
+        }
     }
 }
 
@@ -43,6 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             togglePopover: { [weak menuBar] in menuBar?.togglePopover(nil) },
             quickAdd: { [weak menuBar] in menuBar?.openQuickAdd() }
         ))
+    }
+
+    func showSettings() {
+        windows?.show(.settings)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

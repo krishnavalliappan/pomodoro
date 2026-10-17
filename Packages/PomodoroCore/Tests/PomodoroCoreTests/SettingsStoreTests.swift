@@ -54,6 +54,11 @@ struct SettingsStoreTests {
         }
     }
 
+    @Test func newerVersionMessageOnlyStatesTheCause() {
+        // Edits still apply until quit (the app says so), so this must not claim they're blocked.
+        #expect(SettingsStoreError.newerVersionStored(42).localizedDescription == "Settings were saved by a newer version of Pomodoro.")
+    }
+
     @Test func newerVersionIsNotRewritten() {
         withSuite { defaults in
             let key = UserDefaultsSettingsStore.defaultKey

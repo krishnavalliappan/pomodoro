@@ -96,6 +96,62 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(focus.minutes.wrappedValue, 1)
     }
 
+    func testTypedMinutesCommitOnceOnReturn() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.startFocus()
+        var updates = 0
+        model.onEngineUpdate = { _, _ in updates += 1 }
+        let scheduled = h.scheduler.scheduledCount
+        let minutes = model.defaultProfileBinding(\.shortBreakDuration).minutes
+        var draft = MinutesDraft(range: MinutesField.defaultRange)
+
+        draft.text = "4"
+        draft.text = "45"
+        XCTAssertEqual(updates, 0, "typing alone saves nothing")
+        XCTAssertEqual(h.scheduler.scheduledCount, scheduled, "typing alone reschedules nothing")
+        XCTAssertEqual(draft.displayed(minutes.wrappedValue), "45")
+
+        draft.commit(to: minutes)
+        XCTAssertEqual(updates, 1)
+        XCTAssertEqual(h.scheduler.scheduledCount, scheduled + 1)
+        XCTAssertEqual(h.settingsStore.load().defaultProfile.shortBreakDuration, 45 * 60)
+        XCTAssertEqual(draft.displayed(minutes.wrappedValue), "45")
+
+        draft.commit(to: minutes)
+        XCTAssertEqual(updates, 1, "a second commit with nothing typed writes nothing")
+    }
+
+    func testTypedMinutesClampWhenCommitted() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        let minutes = model.defaultProfileBinding(\.focusDuration).minutes
+        var draft = MinutesDraft(range: MinutesField.defaultRange)
+
+        draft.text = "0"
+        XCTAssertEqual(draft.displayed(minutes.wrappedValue), "0", "not corrected while typing")
+        draft.commit(to: minutes)
+        XCTAssertEqual(minutes.wrappedValue, 1)
+        XCTAssertEqual(draft.displayed(minutes.wrappedValue), "1")
+
+        draft.text = "999"
+        draft.commit(to: minutes)
+        XCTAssertEqual(minutes.wrappedValue, 180)
+        XCTAssertEqual(draft.displayed(minutes.wrappedValue), "180")
+
+        draft.text = ""
+        draft.commit(to: minutes)
+        XCTAssertEqual(minutes.wrappedValue, 180, "empty text reverts")
+        XCTAssertEqual(draft.displayed(minutes.wrappedValue), "180")
+    }
+
+    func testSteppingStartsFromTheTypedValue() {
+        var draft = MinutesDraft(range: 1...180, text: "40")
+        XCTAssertEqual(draft.value(25), 40)
+        draft.text = "abc"
+        XCTAssertEqual(draft.value(25), 25)
+    }
+
     // MARK: Presets tab
 
     func testMakeDefaultSwitchesTheEngineAndWhatTheTimerTabEdits() throws {

@@ -7,6 +7,11 @@ struct PresetsSettingsView: View {
     @State private var selection: Preset.ID?
     @State private var editing: PresetDraft?
 
+    init(model: AppModel, selection: Preset.ID? = nil) {
+        self.model = model
+        _selection = State(initialValue: selection)
+    }
+
     private var presets: [Preset] { model.settings.presets }
     private var selected: Preset? { selection.flatMap(model.settings.preset(id:)) }
 
@@ -188,10 +193,16 @@ struct PresetEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             Form {
-                TextField("Name", text: $draft.name)
-                MinutesField(title: "Focus", minutes: minutes(\.focusDuration))
-                MinutesField(title: "Short break", minutes: minutes(\.shortBreakDuration))
-                MinutesField(title: "Long break", minutes: minutes(\.longBreakDuration))
+                LabeledContent("Name") {
+                    TextField("Name", text: $draft.name)
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
+                        .frame(width: 180)
+                }
+                MinutesField(title: "Focus", minutes: minutes(\.focusDuration), writesWhileTyping: true)
+                MinutesField(title: "Short break", minutes: minutes(\.shortBreakDuration), writesWhileTyping: true)
+                MinutesField(title: "Long break", minutes: minutes(\.longBreakDuration), writesWhileTyping: true)
                 LabeledContent("Long break after") {
                     HStack(spacing: 6) {
                         Text(draft.profile.longBreakEvery == 1 ? "every focus" : "\(draft.profile.longBreakEvery) focuses")

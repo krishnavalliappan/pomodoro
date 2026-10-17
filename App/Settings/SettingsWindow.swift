@@ -91,7 +91,7 @@ struct SettingsBanner: View {
                     .foregroundStyle(Color(nsColor: .systemOrange))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(error.localizedDescription)
-                    Text("Changes apply until you quit, but aren't saved.")
+                    Text("Changes you make here apply until you quit but won't be saved.")
                         .foregroundStyle(.secondary)
                 }
                 .fixedSize(horizontal: false, vertical: true)

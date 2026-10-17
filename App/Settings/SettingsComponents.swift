@@ -28,28 +28,96 @@ extension Binding where Value == TimeInterval {
     }
 }
 
+/// What a minutes field shows while the user types. Only `commit` writes, so the "1" on the way
+/// to "15" never saves settings, reschedules a timer, or becomes an auto-started break's length.
+struct MinutesDraft: Equatable {
+    var range: ClosedRange<Int>
+    /// Typed since the last commit; nil shows the stored value.
+    var text: String?
+
+    func displayed(_ minutes: Int) -> String {
+        text ?? String(minutes)
+    }
+
+    /// The clamped typed number, or the stored value when the text isn't one.
+    func value(_ minutes: Int) -> Int {
+        guard let text, let typed = Int(text.trimmingCharacters(in: .whitespaces)) else { return minutes }
+        return min(max(typed, range.lowerBound), range.upperBound)
+    }
+
+    /// Writes once, then shows the stored (possibly clamped) value again.
+    mutating func commit(to minutes: Binding<Int>) {
+        let value = value(minutes.wrappedValue)
+        text = nil
+        if value != minutes.wrappedValue { minutes.wrappedValue = value }
+    }
+}
+
 /// A duration in minutes: type it or step it.
 struct MinutesField: View {
+    static let defaultRange = Int(TimerProfile.durationRange.lowerBound / 60)...Int(TimerProfile.durationRange.upperBound / 60)
+
     var title: String
     @Binding var minutes: Int
-    var range: ClosedRange<Int> = Int(TimerProfile.durationRange.lowerBound / 60)...Int(TimerProfile.durationRange.upperBound / 60)
+    var range: ClosedRange<Int>
     var unit = "min"
+    /// For a sheet's local draft: its Save button reads the value without the field losing focus
+    /// first, and writing there saves nothing. Settings bindings commit on Return or focus loss.
+    var writesWhileTyping = false
 
-    private var clamped: Binding<Int> {
-        Binding(get: { minutes }, set: { minutes = min(max($0, range.lowerBound), range.upperBound) })
+    @State private var draft: MinutesDraft
+    @FocusState private var isFocused: Bool
+
+    init(title: String, minutes: Binding<Int>, range: ClosedRange<Int> = Self.defaultRange, unit: String = "min", writesWhileTyping: Bool = false) {
+        self.title = title
+        _minutes = minutes
+        self.range = range
+        self.unit = unit
+        self.writesWhileTyping = writesWhileTyping
+        _draft = State(initialValue: MinutesDraft(range: range))
+    }
+
+    private var text: Binding<String> {
+        Binding(
+            get: { draft.displayed(minutes) },
+            set: { text in
+                draft.text = text
+                if writesWhileTyping {
+                    let value = draft.value(minutes)
+                    if value != minutes { minutes = value }
+                }
+            }
+        )
+    }
+
+    /// Steps from what's typed, and writes once.
+    private var stepped: Binding<Int> {
+        Binding(
+            get: { draft.value(minutes) },
+            set: { value in
+                draft.text = String(value)
+                draft.commit(to: $minutes)
+            }
+        )
     }
 
     var body: some View {
         LabeledContent(title) {
             HStack(spacing: 6) {
-                TextField(title, value: clamped, format: .number)
+                TextField(title, text: text)
                     .labelsHidden()
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .frame(width: 44)
+                    .focused($isFocused)
+                    .onSubmit { draft.commit(to: $minutes) }
+                    .onChange(of: isFocused) { _, focused in
+                        if !focused { draft.commit(to: $minutes) }
+                    }
+                    .onDisappear { draft.commit(to: $minutes) }
                 Text(unit)
                     .foregroundStyle(.secondary)
-                Stepper(title, value: clamped, in: range)
+                Stepper(title, value: stepped, in: range)
                     .labelsHidden()
             }
         }
