@@ -16,11 +16,11 @@ struct TaskRepositoryTests {
         let a = try db.tasks.create(title: "A", createdAt: now)
         let b = try db.tasks.create(
             title: "B", notes: "details", estimatePomodoros: 3, tag: "work",
-            scheduledDay: Fixture.date(day: 18, 15, 45), createdAt: now
+            scheduledDay: Fixture.day(18), createdAt: now
         )
         #expect(a.sortIndex == 0)
         #expect(b.sortIndex == 1)
-        #expect(b.scheduledDay == Fixture.date(day: 18))
+        #expect(b.scheduledDay == Fixture.day(18))
 
         let fetched = try #require(try db.tasks.fetch(id: b.id))
         #expect(fetched == b)
@@ -30,17 +30,17 @@ struct TaskRepositoryTests {
         #expect(try db.tasks.all().map(\.title) == ["A", "B"])
     }
 
-    @Test func insertAndUpdateNormalizeScheduledDay() throws {
-        var task = TaskItem(title: "T", createdAt: now, scheduledDay: Fixture.date(day: 20, 23, 59))
+    @Test func insertAndUpdateRoundTripScheduledDay() throws {
+        var task = TaskItem(title: "T", createdAt: now, scheduledDay: Fixture.day(20))
         try db.tasks.insert(task)
-        #expect(try db.tasks.fetch(id: task.id)?.scheduledDay == Fixture.date(day: 20))
+        #expect(try db.tasks.fetch(id: task.id)?.scheduledDay == Fixture.day(20))
 
         task.title = "Renamed"
-        task.scheduledDay = Fixture.date(day: 21, 0, 0, 1)
+        task.scheduledDay = Fixture.day(21)
         try db.tasks.update(task)
         let fetched = try #require(try db.tasks.fetch(id: task.id))
         #expect(fetched.title == "Renamed")
-        #expect(fetched.scheduledDay == Fixture.date(day: 21))
+        #expect(fetched.scheduledDay == Fixture.day(21))
     }
 
     @Test func updateMissingTaskThrowsNotFound() throws {
@@ -63,7 +63,7 @@ struct TaskRepositoryTests {
         try db.blocks.insert(block)
         let session = FocusSession(
             taskID: task.id, blockID: block.id, start: now, end: now.addingTimeInterval(1500),
-            plannedSeconds: 1500, completed: true
+            plannedSeconds: 1500, activeSeconds: 1500, completed: true
         )
         try db.sessions.insert(session)
 
@@ -89,8 +89,8 @@ struct TaskRepositoryTests {
 
     @Test func scheduleMovesBetweenDayAndInbox() throws {
         let task = try db.tasks.create(title: "Move", createdAt: now)
-        let scheduled = try db.tasks.schedule(id: task.id, on: Fixture.date(day: 17, 22))
-        #expect(scheduled.scheduledDay == Fixture.date(day: 17))
+        let scheduled = try db.tasks.schedule(id: task.id, onDayContaining: Fixture.date(day: 17, 22))
+        #expect(scheduled.scheduledDay == Fixture.day(17))
         #expect(try db.tasks.today(now: now).map(\.id) == [task.id])
         #expect(try db.tasks.inbox(now: now).isEmpty)
 
@@ -125,21 +125,21 @@ struct TaskRepositoryTests {
     }
 
     @Test func todayIncludesTodayAndOpenOverdueTasks() throws {
-        let today = try db.tasks.create(title: "Today", scheduledDay: Fixture.date(day: 17), createdAt: now)
-        let todayDone = try db.tasks.create(title: "Today done", scheduledDay: Fixture.date(day: 17), createdAt: now)
+        let today = try db.tasks.create(title: "Today", scheduledDay: Fixture.day(17), createdAt: now)
+        let todayDone = try db.tasks.create(title: "Today done", scheduledDay: Fixture.day(17), createdAt: now)
         try db.tasks.setDone(id: todayDone.id, true, at: now)
-        let overdue = try db.tasks.create(title: "Overdue", scheduledDay: Fixture.date(day: 15), createdAt: now)
-        let overdueDone = try db.tasks.create(title: "Overdue done", scheduledDay: Fixture.date(day: 16), createdAt: now)
+        let overdue = try db.tasks.create(title: "Overdue", scheduledDay: Fixture.day(15), createdAt: now)
+        let overdueDone = try db.tasks.create(title: "Overdue done", scheduledDay: Fixture.day(16), createdAt: now)
         try db.tasks.setDone(id: overdueDone.id, true, at: Fixture.date(day: 16, 12))
-        try db.tasks.create(title: "Tomorrow", scheduledDay: Fixture.date(day: 18), createdAt: now)
+        try db.tasks.create(title: "Tomorrow", scheduledDay: Fixture.day(18), createdAt: now)
         try db.tasks.create(title: "Inbox", createdAt: now)
 
         #expect(try db.tasks.today(now: now).map(\.id) == [today.id, todayDone.id, overdue.id])
     }
 
     @Test func todayBoundariesFollowTheCalendarDay() throws {
-        try db.tasks.create(title: "Today", scheduledDay: Fixture.date(day: 17), createdAt: now)
-        try db.tasks.create(title: "Tomorrow", scheduledDay: Fixture.date(day: 18), createdAt: now)
+        try db.tasks.create(title: "Today", scheduledDay: Fixture.day(17), createdAt: now)
+        try db.tasks.create(title: "Tomorrow", scheduledDay: Fixture.day(18), createdAt: now)
 
         #expect(try db.tasks.today(now: Fixture.date(day: 17)).map(\.title) == ["Today"])
         #expect(try db.tasks.today(now: Fixture.date(day: 17, 23, 59, 59)).map(\.title) == ["Today"])
@@ -152,8 +152,10 @@ struct TaskRepositoryTests {
         let db = try Fixture.database(calendar: tokyo)
         // 23:30 UTC on the 16th is already the 17th in Tokyo.
         let lateUTC = Fixture.date(day: 16, 23, 30)
-        let task = try db.tasks.create(title: "Tokyo", scheduledDay: lateUTC, createdAt: lateUTC)
-        #expect(task.scheduledDay == Fixture.date(day: 17, calendar: tokyo))
+        let created = try db.tasks.create(title: "Tokyo", createdAt: lateUTC)
+        let task = try db.tasks.schedule(id: created.id, onDayContaining: lateUTC)
+        #expect(task.scheduledDay == Fixture.day(17))
+        #expect(task.scheduledDay?.start(in: tokyo) == Fixture.date(day: 17, calendar: tokyo))
         #expect(try db.tasks.today(now: Fixture.date(day: 17, 12, calendar: tokyo)).map(\.id) == [task.id])
     }
 
@@ -163,7 +165,10 @@ struct TaskRepositoryTests {
         try db.tasks.setDone(id: doneToday.id, true, at: Fixture.date(day: 17, 8))
         let doneYesterday = try db.tasks.create(title: "Done yesterday", createdAt: now)
         try db.tasks.setDone(id: doneYesterday.id, true, at: Fixture.date(day: 16, 23, 59))
-        try db.tasks.create(title: "Scheduled", scheduledDay: Fixture.date(day: 17), createdAt: now)
+        try db.tasks.create(title: "Scheduled", scheduledDay: Fixture.day(17), createdAt: now)
+        // Possible with an injected `now` or after the clock moves backward.
+        let doneTomorrow = try db.tasks.create(title: "Done tomorrow", createdAt: now)
+        try db.tasks.setDone(id: doneTomorrow.id, true, at: Fixture.date(day: 18))
 
         #expect(try db.tasks.inbox(now: now).map(\.id) == [open.id, doneToday.id])
     }
@@ -173,7 +178,7 @@ struct TaskRepositoryTests {
         let value1 = await iterator.next()
         #expect(value1 == [])
 
-        let task = try db.tasks.create(title: "Live", scheduledDay: now, createdAt: now)
+        let task = try db.tasks.create(title: "Live", scheduledDay: Fixture.day(17), createdAt: now)
         let value2 = await iterator.next()
         #expect(value2 == [task])
     }
@@ -187,9 +192,23 @@ struct TaskRepositoryTests {
         let value4 = await iterator.next()
         #expect(value4 == [task])
 
-        try db.tasks.schedule(id: task.id, on: now)
+        try db.tasks.schedule(id: task.id, onDayContaining: now)
         let value5 = await iterator.next()
         #expect(value5 == [])
+    }
+
+    @Test func cancellingAnObserverEndsItsStream() async throws {
+        let stream = db.tasks.observeAll()
+        let consumer = Task {
+            var count = 0
+            for await _ in stream { count += 1 }
+            return count
+        }
+        try db.tasks.create(title: "A", createdAt: now)
+        consumer.cancel()
+        // Returning at all proves cancellation finished the stream instead of hanging.
+        #expect(await consumer.value >= 0)
+        try db.tasks.create(title: "B", createdAt: now)
     }
 
     @Test func observeAllEmitsReorders() async throws {

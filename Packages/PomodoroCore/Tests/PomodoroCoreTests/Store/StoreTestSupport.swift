@@ -2,11 +2,17 @@ import Foundation
 @testable import PomodoroCore
 
 enum Fixture {
-    static let utc: Calendar = {
+    static let utc = calendar("UTC")
+
+    static func calendar(_ timeZone: String) -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.timeZone = TimeZone(identifier: timeZone)!
         return calendar
-    }()
+    }
+
+    static func day(_ day: Int, month: Int = 10) -> CivilDay {
+        CivilDay(year: 2026, month: month, day: day)
+    }
 
     /// A moment on October `day`, 2026, in `calendar`'s time zone.
     static func date(

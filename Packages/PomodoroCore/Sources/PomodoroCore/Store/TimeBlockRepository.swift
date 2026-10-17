@@ -42,7 +42,7 @@ public struct TimeBlockRepository: Sendable {
         return try modify(id: id) { $0.duration = duration }
     }
 
-    /// Blocks that overlap `range` at all, ordered by start.
+    /// Blocks that overlap `range` at all, ordered by start. An empty range matches nothing.
     public func blocks(in range: Range<Date>) throws -> [TimeBlock] {
         try writer.read { db in try Self.overlapping(range).fetchAll(db) }
     }
@@ -52,7 +52,7 @@ public struct TimeBlockRepository: Sendable {
     }
 
     /// The block containing `date` (start inclusive, end exclusive). When blocks
-    /// overlap, the one that started most recently wins.
+    /// overlap, the one that started most recently wins; equal starts tie-break by ID.
     public func block(at date: Date) throws -> TimeBlock? {
         try writer.read { db in try Self.containing(date).fetchOne(db) }
     }
@@ -70,15 +70,17 @@ public struct TimeBlockRepository: Sendable {
     private static var end: SQLExpression { TimeBlock.Columns.start + TimeBlock.Columns.duration }
 
     private static func overlapping(_ range: Range<Date>) -> QueryInterfaceRequest<TimeBlock> {
-        TimeBlock
+        let request = TimeBlock
             .filter(TimeBlock.Columns.start < range.upperBound.sqlValue && end > range.lowerBound.sqlValue)
-            .order(TimeBlock.Columns.start, TimeBlock.Columns.duration)
+            .order(TimeBlock.Columns.start, TimeBlock.Columns.duration, TimeBlock.Columns.id)
+        // Otherwise a block spanning an empty range's instant would match.
+        return range.isEmpty ? request.none() : request
     }
 
     private static func containing(_ date: Date) -> QueryInterfaceRequest<TimeBlock> {
         TimeBlock
             .filter(TimeBlock.Columns.start <= date.sqlValue && end > date.sqlValue)
-            .order(TimeBlock.Columns.start.desc)
+            .order(TimeBlock.Columns.start.desc, TimeBlock.Columns.id.desc)
             .limit(1)
     }
 

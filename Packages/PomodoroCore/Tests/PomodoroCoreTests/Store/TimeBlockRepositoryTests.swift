@@ -102,6 +102,27 @@ struct TimeBlockRepositoryTests {
         #expect(after.start == range.upperBound)
     }
 
+    @Test func emptyRangeMatchesNothing() async throws {
+        try block("Spanning", 9)
+        let instant = Fixture.date(day: 17, 9, 30)
+        #expect(try db.blocks.blocks(in: instant..<instant).isEmpty)
+
+        var iterator = db.blocks.observe(in: instant..<instant).makeAsyncIterator()
+        let value = await iterator.next()
+        #expect(value == [])
+    }
+
+    @Test func equalStartsResolveDeterministicallyByID() throws {
+        let low = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let high = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        // Insert the eventual winner first so insertion order can't explain the result.
+        try db.blocks.insert(TimeBlock(id: high, title: "High", start: Fixture.date(day: 17, 9), duration: 3600))
+        try db.blocks.insert(TimeBlock(id: low, title: "Low", start: Fixture.date(day: 17, 9), duration: 3600))
+
+        #expect(try db.blocks.block(at: Fixture.date(day: 17, 9, 15))?.id == high)
+        #expect(try db.blocks.blocks(onDayContaining: Fixture.date(day: 17)).map(\.id) == [low, high])
+    }
+
     @Test func blockAtFindsContainingBlock() throws {
         let b = try block("B", 9, minutes: 30)
         #expect(try db.blocks.block(at: Fixture.date(day: 17, 9, 15))?.id == b.id)

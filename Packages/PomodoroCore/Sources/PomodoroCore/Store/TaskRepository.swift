@@ -5,7 +5,6 @@ public struct TaskRepository: Sendable {
     let database: AppDatabase
 
     private var writer: any DatabaseWriter { database.writer }
-    private var calendar: Calendar { database.calendar }
 
     /// Inserts a new task at the end of the list.
     @discardableResult
@@ -14,12 +13,12 @@ public struct TaskRepository: Sendable {
         notes: String = "",
         estimatePomodoros: Int? = nil,
         tag: String? = nil,
-        scheduledDay: Date? = nil,
+        scheduledDay: CivilDay? = nil,
         createdAt: Date = Date()
     ) throws -> TaskItem {
         try writer.write { db in
             let maxIndex = try TaskItem.select(max(TaskItem.Columns.sortIndex), as: Int.self).fetchOne(db)
-            let task = normalized(TaskItem(
+            let task = TaskItem(
                 title: title,
                 notes: notes,
                 estimatePomodoros: estimatePomodoros,
@@ -27,20 +26,20 @@ public struct TaskRepository: Sendable {
                 sortIndex: (maxIndex ?? -1) + 1,
                 createdAt: createdAt,
                 scheduledDay: scheduledDay
-            ))
+            )
             try task.insert(db)
             return task
         }
     }
 
     public func insert(_ task: TaskItem) throws {
-        try writer.write { db in try normalized(task).insert(db) }
+        try writer.write { db in try task.insert(db) }
     }
 
     public func update(_ task: TaskItem) throws {
         try writer.write { db in
             do {
-                try normalized(task).update(db)
+                try task.update(db)
             } catch RecordError.recordNotFound {
                 throw StoreError.notFound(task.id)
             }
@@ -68,10 +67,16 @@ public struct TaskRepository: Sendable {
         }
     }
 
-    /// Moves a task to a day (normalized to its start) or back to the inbox with `nil`.
+    /// Moves a task to a day, or back to the inbox with `nil`.
     @discardableResult
-    public func schedule(id: UUID, on day: Date?) throws -> TaskItem {
+    public func schedule(id: UUID, on day: CivilDay?) throws -> TaskItem {
         try modify(id: id) { $0.scheduledDay = day }
+    }
+
+    /// Schedules for the day `date` falls on in the store's calendar, e.g. from a date picker.
+    @discardableResult
+    public func schedule(id: UUID, onDayContaining date: Date) throws -> TaskItem {
+        try schedule(id: id, on: database.day(containing: date))
     }
 
     /// Assigns `sortIndex` 0, 1, 2… in the given order. IDs not listed keep their index.
@@ -92,15 +97,18 @@ public struct TaskRepository: Sendable {
     }
 
     /// Unscheduled tasks: open ones, plus ones finished today so check-offs stay visible.
+    /// Like `today`, the day is fixed by `now`.
     public func inbox(now: Date = Date()) throws -> [TaskItem] {
         try writer.read { db in try inboxRequest(now: now).fetchAll(db) }
     }
 
-    /// `now` is captured once; re-subscribe after midnight to roll the day over.
+    /// `now` is captured once: the subscriber must re-subscribe at the next midnight, on
+    /// wake, and on time-zone or calendar changes to roll the day over.
     public func observeToday(now: Date = Date()) -> AsyncStream<[TaskItem]> {
         database.observe { db in try todayRequest(now: now).fetchAll(db) }
     }
 
+    /// Same day-rollover contract as `observeToday`.
     public func observeInbox(now: Date = Date()) -> AsyncStream<[TaskItem]> {
         database.observe { db in try inboxRequest(now: now).fetchAll(db) }
     }
@@ -111,12 +119,11 @@ public struct TaskRepository: Sendable {
 
     // MARK: - Private
 
+    // ISO day strings compare chronologically, so SQL can order them directly.
     private func todayRequest(now: Date) -> QueryInterfaceRequest<TaskItem> {
-        let day = database.dayRange(containing: now)
-        let scheduledToday = TaskItem.Columns.scheduledDay >= day.lowerBound.sqlValue
-            && TaskItem.Columns.scheduledDay < day.upperBound.sqlValue
-        let overdue = TaskItem.Columns.scheduledDay < day.lowerBound.sqlValue
-            && TaskItem.Columns.isDone == false
+        let today = database.day(containing: now)
+        let scheduledToday = TaskItem.Columns.scheduledDay == today
+        let overdue = TaskItem.Columns.scheduledDay < today && TaskItem.Columns.isDone == false
         return TaskItem.filter(scheduledToday || overdue).inListOrder()
     }
 
@@ -124,21 +131,18 @@ public struct TaskRepository: Sendable {
         let day = database.dayRange(containing: now)
         return TaskItem
             .filter(TaskItem.Columns.scheduledDay == nil)
-            .filter(TaskItem.Columns.isDone == false || TaskItem.Columns.doneAt >= day.lowerBound.sqlValue)
+            .filter(
+                TaskItem.Columns.isDone == false
+                    || (TaskItem.Columns.doneAt >= day.lowerBound.sqlValue
+                        && TaskItem.Columns.doneAt < day.upperBound.sqlValue)
+            )
             .inListOrder()
-    }
-
-    private func normalized(_ task: TaskItem) -> TaskItem {
-        var task = task
-        task.scheduledDay = task.scheduledDay.map { calendar.startOfDay(for: $0) }
-        return task
     }
 
     private func modify(id: UUID, _ change: @Sendable (inout TaskItem) -> Void) throws -> TaskItem {
         try writer.write { db in
             guard var task = try TaskItem.fetchOne(db, key: id) else { throw StoreError.notFound(id) }
             change(&task)
-            task = normalized(task)
             try task.update(db)
             return task
         }

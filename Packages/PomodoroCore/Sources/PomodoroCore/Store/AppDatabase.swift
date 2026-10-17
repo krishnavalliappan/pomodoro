@@ -53,7 +53,8 @@ public struct AppDatabase: Sendable {
                 t.column("doneAt", .double)
                 t.column("sortIndex", .integer).notNull().defaults(to: 0)
                 t.column("createdAt", .double).notNull()
-                t.column("scheduledDay", .double).indexed()
+                // `YYYY-MM-DD`, not an instant, so the day survives time-zone changes.
+                t.column("scheduledDay", .text).indexed()
             }
 
             try db.create(table: TimeBlock.databaseTableName) { t in
@@ -79,9 +80,17 @@ public struct AppDatabase: Sendable {
                 t.column("start", .double).notNull().indexed()
                 t.column("end", .double).notNull()
                 t.column("plannedSeconds", .double).notNull().check { $0 >= 0 }
+                t.column("activeSeconds", .double).notNull().check { $0 >= 0 }
+                t.column("pausedSeconds", .double).notNull().defaults(to: 0).check { $0 >= 0 }
                 t.column("overtimeSeconds", .double).notNull().defaults(to: 0).check { $0 >= 0 }
                 t.column("completed", .boolean).notNull()
                 t.check(Column("end") >= Column("start"))
+                t.check(Column("overtimeSeconds") <= Column("activeSeconds"))
+                // Active and paused time partition the session; allow float rounding slack.
+                t.check(
+                    Column("activeSeconds") + Column("pausedSeconds")
+                        <= Column("end") - Column("start") + FocusSession.timingTolerance
+                )
             }
         }
         return migrator
@@ -89,15 +98,18 @@ public struct AppDatabase: Sendable {
 
     /// Bridges a GRDB `ValueObservation` to an `AsyncStream` the UI can iterate.
     /// Emits the current value first, then a fresh value after each relevant commit.
-    /// The stream finishes if the fetch throws.
+    /// Only the newest value is buffered: these are current-state snapshots, so a slow
+    /// consumer should skip stale ones. The stream finishes if the fetch throws.
     func observe<Value: Sendable>(
         _ fetch: @escaping @Sendable (Database) throws -> Value
     ) -> AsyncStream<Value> {
         let writer = self.writer
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 do {
-                    for try await value in ValueObservation.tracking(fetch).values(in: writer) {
+                    let values = ValueObservation.tracking(fetch)
+                        .values(in: writer, bufferingPolicy: .bufferingNewest(1))
+                    for try await value in values {
                         continuation.yield(value)
                     }
                 } catch {}
@@ -105,6 +117,11 @@ public struct AppDatabase: Sendable {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// The civil day `date` falls on in the store's calendar.
+    public func day(containing date: Date) -> CivilDay {
+        CivilDay(containing: date, in: calendar)
     }
 
     func dayRange(containing date: Date) -> Range<Date> {
@@ -117,6 +134,8 @@ public struct AppDatabase: Sendable {
 public enum StoreError: Error, Equatable, Sendable {
     case notFound(UUID)
     case invalidDuration(TimeInterval)
+    /// Timing fields are negative, non-finite, or don't fit between start and end.
+    case invalidSession(UUID)
 }
 
 extension Date {

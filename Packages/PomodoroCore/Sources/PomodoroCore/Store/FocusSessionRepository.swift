@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// Time actually spent on a task, overtime included.
+/// Time actually spent on a task: active focus only, pauses excluded, overtime included.
 public struct TaskActuals: Hashable, Sendable {
     public var completedPomodoros: Int
     public var sessionCount: Int
@@ -16,7 +16,7 @@ public struct TaskActuals: Hashable, Sendable {
     public static let zero = TaskActuals()
 }
 
-/// Focus totals for one calendar day. A session counts toward the day it started on.
+/// Focus totals for one calendar day, from active time. A session counts toward the day it started on.
 public struct DayTotal: Hashable, Sendable {
     /// Start of the day in the store's calendar.
     public var day: Date
@@ -38,6 +38,7 @@ public struct FocusSessionRepository: Sendable {
     private var writer: any DatabaseWriter { database.writer }
 
     public func insert(_ session: FocusSession) throws {
+        guard session.hasValidTiming else { throw StoreError.invalidSession(session.id) }
         try writer.write { db in try session.insert(db) }
     }
 
@@ -109,7 +110,7 @@ public struct FocusSessionRepository: Sendable {
             SELECT taskID,
                    TOTAL(completed) AS completedPomodoros,
                    COUNT(*) AS sessionCount,
-                   TOTAL("end" - "start") AS focusedSeconds
+                   TOTAL(activeSeconds) AS focusedSeconds
             FROM \(FocusSession.databaseTableName)
             WHERE taskID IN (\(databaseQuestionMarks(count: taskIDs.count)))
             GROUP BY taskID
@@ -143,7 +144,7 @@ public struct FocusSessionRepository: Sendable {
             let key = calendar.startOfDay(for: session.start)
             totals[key]?.sessionCount += 1
             totals[key]?.completedPomodoros += session.completed ? 1 : 0
-            totals[key]?.focusedSeconds += session.duration
+            totals[key]?.focusedSeconds += session.activeSeconds
         }
         return days.compactMap { totals[$0] }
     }

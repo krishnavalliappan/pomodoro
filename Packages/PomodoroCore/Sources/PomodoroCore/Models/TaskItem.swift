@@ -11,8 +11,8 @@ public struct TaskItem: Identifiable, Hashable, Sendable, Codable {
     public var doneAt: Date?
     public var sortIndex: Int
     public var createdAt: Date
-    /// Start of the scheduled day; `nil` means the task lives in the inbox.
-    public var scheduledDay: Date?
+    /// `nil` means the task lives in the inbox.
+    public var scheduledDay: CivilDay?
 
     public init(
         id: UUID = UUID(),
@@ -24,7 +24,7 @@ public struct TaskItem: Identifiable, Hashable, Sendable, Codable {
         doneAt: Date? = nil,
         sortIndex: Int = 0,
         createdAt: Date,
-        scheduledDay: Date? = nil
+        scheduledDay: CivilDay? = nil
     ) {
         self.id = id
         self.title = title

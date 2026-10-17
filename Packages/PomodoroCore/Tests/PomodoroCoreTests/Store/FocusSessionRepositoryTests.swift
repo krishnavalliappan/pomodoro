@@ -14,13 +14,14 @@ struct FocusSessionRepositoryTests {
     @discardableResult
     private func session(
         day: Int = 17, _ hour: Int, _ minute: Int = 0, minutes: Double = 25, overtime: Double = 0,
-        completed: Bool = true, taskID: UUID? = nil, blockID: UUID? = nil
+        paused: Double = 0, completed: Bool = true, taskID: UUID? = nil, blockID: UUID? = nil
     ) throws -> FocusSession {
         let start = Fixture.date(day: day, hour, minute)
         let session = FocusSession(
             taskID: taskID, blockID: blockID, start: start,
-            end: start.addingTimeInterval((minutes + overtime) * 60),
-            plannedSeconds: minutes * 60, overtimeSeconds: overtime * 60, completed: completed
+            end: start.addingTimeInterval((minutes + overtime + paused) * 60),
+            plannedSeconds: minutes * 60, activeSeconds: (minutes + overtime) * 60, pausedSeconds: paused * 60,
+            overtimeSeconds: overtime * 60, completed: completed
         )
         try db.sessions.insert(session)
         return session
@@ -29,12 +30,87 @@ struct FocusSessionRepositoryTests {
     @Test func constructsFromPlainFields() {
         let start = Fixture.date(day: 17, 9)
         let session = FocusSession(
-            start: start, end: start.addingTimeInterval(1700), plannedSeconds: 1500, overtimeSeconds: 200,
-            completed: true
+            start: start, end: start.addingTimeInterval(1700), plannedSeconds: 1500, activeSeconds: 1700,
+            overtimeSeconds: 200, completed: true
         )
         #expect(session.taskID == nil)
         #expect(session.blockID == nil)
+        #expect(session.pausedSeconds == 0)
         #expect(session.duration == 1700)
+    }
+
+    /// Mirrors the TimerEngine's pause-and-overtime record: 600 s focus, 120 s pause,
+    /// then 1,080 s more, so 1,800 s of wall clock but 1,680 s of focus.
+    private func timerRecord(
+        taskID: UUID?, start: Date, active: TimeInterval = 1680, paused: TimeInterval = 120,
+        overtime: TimeInterval = 180, completed: Bool = true
+    ) -> FocusSession {
+        FocusSession(
+            taskID: taskID, start: start, end: start.addingTimeInterval(active + paused),
+            plannedSeconds: 1500, activeSeconds: active, pausedSeconds: paused, overtimeSeconds: overtime,
+            completed: completed
+        )
+    }
+
+    @Test func timerRecordWithPausesRoundTrips() throws {
+        let task = try db.tasks.create(title: "T", createdAt: Fixture.date(day: 17))
+        let record = timerRecord(taskID: task.id, start: Fixture.date(day: 17, 9))
+        try db.sessions.insert(record)
+
+        let fetched = try #require(try db.sessions.fetch(id: record.id))
+        #expect(fetched == record)
+        #expect(fetched.duration == 1800)
+        #expect(fetched.activeSeconds == 1680)
+        #expect(fetched.pausedSeconds == 120)
+        #expect(fetched.overtimeSeconds == 180)
+    }
+
+    @Test func actualsAndTotalsExcludePausedTime() throws {
+        let task = try db.tasks.create(title: "T", createdAt: Fixture.date(day: 17))
+        // Completed with a pause and overtime.
+        try db.sessions.insert(timerRecord(taskID: task.id, start: Fixture.date(day: 17, 9)))
+        // Abandoned after 10 min focus and a 5 min pause: active time still counts, no pomodoro.
+        try db.sessions.insert(timerRecord(
+            taskID: task.id, start: Fixture.date(day: 17, 10), active: 600, paused: 300, overtime: 0,
+            completed: false
+        ))
+        // Paused, resumed, paused again, then completed exactly on plan.
+        try session(11, paused: 7, taskID: task.id)
+
+        let expected = TaskActuals(completedPomodoros: 2, sessionCount: 3, focusedSeconds: 1680 + 600 + 1500)
+        #expect(try db.sessions.actuals(forTask: task.id) == expected)
+        #expect(try db.sessions.actuals(forTasks: [task.id]) == [task.id: expected])
+        #expect(try db.sessions.total(onDayContaining: Fixture.date(day: 17, 12)) == DayTotal(
+            day: Fixture.date(day: 17), completedPomodoros: 2, sessionCount: 3, focusedSeconds: 1680 + 600 + 1500
+        ))
+    }
+
+    @Test func insertRejectsInconsistentTiming() throws {
+        let start = Fixture.date(day: 17, 9)
+        let invalid = [
+            timerRecord(taskID: nil, start: start, active: -1, paused: 0, overtime: 0),
+            timerRecord(taskID: nil, start: start, active: .nan, paused: 0, overtime: 0),
+            timerRecord(taskID: nil, start: start, active: .infinity, paused: 0, overtime: 0),
+            timerRecord(taskID: nil, start: start, overtime: 2000),
+            FocusSession(
+                start: start, end: start.addingTimeInterval(1000), plannedSeconds: 1500, activeSeconds: 900,
+                pausedSeconds: 200, completed: false
+            ),
+        ]
+        for session in invalid {
+            #expect(throws: StoreError.invalidSession(session.id)) { try db.sessions.insert(session) }
+        }
+        #expect(try db.sessions.sessions(in: start..<start.addingTimeInterval(3600)).isEmpty)
+    }
+
+    @Test func insertToleratesRoundingBetweenWallAndActiveTime() throws {
+        let start = Fixture.date(day: 17, 9)
+        let session = FocusSession(
+            start: start, end: start.addingTimeInterval(1500), plannedSeconds: 1500,
+            activeSeconds: 1380.0000001, pausedSeconds: 120, completed: true
+        )
+        try db.sessions.insert(session)
+        #expect(try db.sessions.fetch(id: session.id) == session)
     }
 
     @Test func insertFetchDeleteRoundTrip() throws {
@@ -74,14 +150,14 @@ struct FocusSessionRepositoryTests {
         #expect(try db.sessions.sessions(forTask: task.id).map(\.id) == [first.id, second.id])
     }
 
-    @Test func actualsCountCompletedAndSumWallClockIncludingOvertime() throws {
+    @Test func actualsCountCompletedAndSumActiveTimeIncludingOvertime() throws {
         let task = try db.tasks.create(title: "T", createdAt: Fixture.date(day: 17))
         try session(9, overtime: 5, taskID: task.id)                  // 30 min, completed
         try session(10, taskID: task.id)                              // 25 min, completed
         try session(11, completed: false, taskID: task.id)                // 25 min, not completed
         let stoppedEarly = FocusSession(
             taskID: task.id, start: Fixture.date(day: 17, 12), end: Fixture.date(day: 17, 12, 10),
-            plannedSeconds: 1500, completed: false
+            plannedSeconds: 1500, activeSeconds: 600, completed: false
         )
         try db.sessions.insert(stoppedEarly)                          // 10 min, not completed
         try session(13)                                               // no task
@@ -153,7 +229,8 @@ struct FocusSessionRepositoryTests {
         for (day, hour) in [(25, 0), (25, 23), (26, 0)] {
             let start = Fixture.date(day: day, hour, 30, calendar: berlin)
             try db.sessions.insert(FocusSession(
-                start: start, end: start.addingTimeInterval(1500), plannedSeconds: 1500, completed: true
+                start: start, end: start.addingTimeInterval(1500), plannedSeconds: 1500, activeSeconds: 1500,
+                completed: true
             ))
         }
 
