@@ -161,6 +161,9 @@ struct TimelineLayoutTests {
         ]
     }()
 
+    /// A minimum that isn't a whole number of snaps, so meeting it has to round up to the grid.
+    static let twentyMinuteMinimum = TimelineLayout(day: Fixture.day(17), calendar: Fixture.utc, hourHeight: 60, minimumDuration: 20 * 60)
+
     private static let oddDurations: [Double] = [15, 25, 50, 60, 95, 150, 24 * 60]
 
     private func onWallClockQuarter(_ date: Date, _ layout: TimelineLayout) -> Bool {
@@ -190,21 +193,32 @@ struct TimelineLayoutTests {
         }
     }
 
-    @Test(arguments: TimelineLayoutTests.gridLayouts)
+    /// Starts run every 7 minutes, so most are off the grid the way quick-add's `@9:07` leaves
+    /// them, and the last few sit too close to the range's end for the minimum.
+    @Test(arguments: TimelineLayoutTests.gridLayouts + [TimelineLayoutTests.twentyMinuteMinimum])
     func resizesLandOnTheGridInsideTheRange(layout: TimelineLayout) {
         let span = layout.lastSlot.timeIntervalSince(layout.firstSlot)
-        for startOffset in stride(from: 0.0, to: span / 60 - 15, by: 45) {
+        for startOffset in stride(from: -30.0, to: span / 60, by: 7) {
             let start = layout.firstSlot + minutes(startOffset)
-            for delta in stride(from: -600.0, through: 1200, by: 11) {
-                let end = start + layout.resizedDuration(start: start, duration: 3600, by: minutes(delta))
-                #expect(onWallClockQuarter(end, layout), "from \(startOffset) by \(delta)")
-                #expect(inside(start..<end, layout), "from \(startOffset) by \(delta)")
-                #expect(end.timeIntervalSince(start) >= layout.minimumDuration)
+            let fits = start + layout.minimumDuration <= layout.lastSlot
+            for duration in [minutes(10), minutes(60)] {
+                for delta in stride(from: -600.0, through: 1200, by: 11) {
+                    let resized = layout.resizedDuration(start: start, duration: duration, by: minutes(delta))
+                    let label: Comment = "from \(startOffset), \(duration / 60) min, by \(delta)"
+                    guard fits else {
+                        #expect(resized == duration, label)
+                        continue
+                    }
+                    let end = start + resized
+                    #expect(onWallClockQuarter(end, layout), label)
+                    #expect(end <= layout.visible.upperBound, label)
+                    #expect(resized >= layout.minimumDuration, label)
+                }
             }
         }
     }
 
-    @Test(arguments: TimelineLayoutTests.gridLayouts)
+    @Test(arguments: TimelineLayoutTests.gridLayouts + [TimelineLayoutTests.twentyMinuteMinimum])
     func creationsLandOnTheGridInsideTheRange(layout: TimelineLayout) {
         let span = layout.visibleDuration / 60
         for a in stride(from: -60.0, through: span + 60, by: 13) {
@@ -231,8 +245,22 @@ struct TimelineLayoutTests {
 
     @Test func resizeStopsAtTheEndOfTheRange() {
         #expect(layout.resizedDuration(start: at(22), duration: 3600, by: minutes(300)) == minutes(120))
-        #expect(layout.resizedDuration(start: at(23, 50), duration: minutes(10), by: minutes(30)) == minutes(15),
-                "the minimum wins over the range")
+        #expect(layout.resizedDuration(start: at(23, 40), duration: minutes(5), by: minutes(30)) == minutes(20))
+    }
+
+    /// Codex's case: `Read @09:07 1h` dragged up an hour. The minimum rounds up to the next
+    /// quarter hour rather than ending at 09:22.
+    @Test func resizingAnOffGridStartKeepsTheEndOnTheGrid() {
+        #expect(layout.resizedDuration(start: at(9, 7), duration: 3600, by: minutes(-60)) == minutes(23))
+        #expect(layout.resizedDuration(start: at(9, 7), duration: 3600, by: minutes(-20)) == minutes(38))
+        #expect(layout.resizedDuration(start: at(9, 7), duration: 3600, by: minutes(20)) == minutes(83))
+    }
+
+    /// Codex's case: `Late @23:50 10m` dragged down 30 minutes. Fifteen minutes would end at
+    /// 00:05, past the range, so the block keeps its ten.
+    @Test func resizingABlockTooCloseToTheEndLeavesItUnchanged() {
+        #expect(layout.resizedDuration(start: at(23, 50), duration: minutes(10), by: minutes(30)) == minutes(10))
+        #expect(layout.resizedDuration(start: at(23, 50), duration: minutes(10), by: minutes(-30)) == minutes(10))
     }
 
     // MARK: Creating
@@ -245,6 +273,12 @@ struct TimelineLayoutTests {
     @Test func creationKeepsTheMinimumDuration() {
         #expect(layout.creationRange(from: at(9, 2), to: at(9, 6)) == at(9)..<at(9, 15))
         #expect(layout.creationRange(from: at(23, 58), to: at(23, 59)) == at(23, 45)..<at(0, day: 18))
+    }
+
+    @Test func creationRoundsAnOffGridMinimumUpToTheGrid() {
+        let layout = Self.twentyMinuteMinimum
+        #expect(layout.creationRange(from: at(9, 2), to: at(9, 6)) == at(9)..<at(9, 30))
+        #expect(layout.creationRange(from: at(23, 58), to: at(23, 59)) == at(23, 30)..<at(0, day: 18))
     }
 
     @Test func creationClampsToTheVisibleRange() {

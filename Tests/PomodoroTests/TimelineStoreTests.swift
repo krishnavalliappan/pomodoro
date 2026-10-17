@@ -126,6 +126,26 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(try saved(h).map(\.duration), [15 * 60])
     }
 
+    func testResizingAnOffGridBlockKeepsItsEndOnTheGrid() throws {
+        let h = try ModelHarness()
+        let original = try addBlock(h, "Read", at: at(9, 7))
+        let store = TimelineStore(model: h.makeModel())
+        store.dragResize(original.id, by: -3600)
+        store.endDrag()
+        XCTAssertEqual(try saved(h).map(\.start), [at(9, 7)])
+        XCTAssertEqual(try saved(h).map(\.end), [at(9, 30)])
+    }
+
+    func testResizingABlockTooCloseToMidnightLeavesIt() throws {
+        let h = try ModelHarness()
+        let original = try addBlock(h, "Late", at: at(23, 50), minutes: 10)
+        let store = TimelineStore(model: h.makeModel())
+        store.dragResize(original.id, by: 30 * 60)
+        store.endDrag()
+        XCTAssertEqual(try saved(h), [original])
+        XCTAssertEqual(store.writeCount, 0)
+    }
+
     func testADragThatLandsWhereItStartedWritesNothing() throws {
         let h = try ModelHarness()
         let original = try addBlock(h, at: at(10))

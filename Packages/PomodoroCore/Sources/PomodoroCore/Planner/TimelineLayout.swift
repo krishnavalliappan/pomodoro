@@ -112,11 +112,15 @@ public struct TimelineLayout: Sendable, Equatable {
         clampedStart(start + delta, duration: duration)
     }
 
-    /// A block's new duration after its bottom edge is dragged by `delta`. The end snaps and
-    /// stays inside the visible range, but never closer than `minimumDuration` to the start.
+    /// A block's new duration after its bottom edge is dragged by `delta`. The start stays put,
+    /// even off the grid; the end snaps, stays inside the visible range, and is no earlier than
+    /// the first snap point `minimumDuration` after the start. A block too close to the range's
+    /// end to meet the minimum keeps its duration, since growing it would push it past the end.
     public func resizedDuration(start: Date, duration: TimeInterval, by delta: TimeInterval) -> TimeInterval {
-        let end = min(snapped(start + duration + delta), lastSlot)
-        return max(end.timeIntervalSince(start), minimumDuration)
+        let shortest = snapped(start + minimumDuration, .up)
+        guard shortest <= lastSlot else { return duration }
+        let end = max(min(snapped(start + duration + delta), lastSlot), shortest)
+        return end.timeIntervalSince(start)
     }
 
     /// The start for a block dropped with its top at `date`.
@@ -124,14 +128,16 @@ public struct TimelineLayout: Sendable, Equatable {
         clampedStart(date, duration: duration)
     }
 
-    /// The block a drag across empty space describes, in either direction.
+    /// The block a drag across empty space describes, in either direction. Both ends are snap
+    /// points inside the visible range; one too short for `minimumDuration` grows down, or up
+    /// when it would pass the range's end.
     public func creationRange(from a: Date, to b: Date) -> Range<Date> {
         func slot(_ date: Date) -> Date { min(max(snapped(date), firstSlot), lastSlot) }
         var start = slot(min(a, b))
         var end = slot(max(a, b))
         if end.timeIntervalSince(start) < minimumDuration {
-            if start + minimumDuration <= lastSlot {
-                end = start + minimumDuration
+            if snapped(start + minimumDuration, .up) <= lastSlot {
+                end = snapped(start + minimumDuration, .up)
             } else {
                 end = lastSlot
                 start = max(snapped(end - minimumDuration, .down), firstSlot)
