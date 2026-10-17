@@ -168,7 +168,8 @@ struct PopoverTaskSection: View, Equatable {
                 model: model,
                 text: quickAddText,
                 idleLine: AnyView(TodayRow(completed: model.completedToday, cycle: model.longBreakEvery)),
-                isEditing: isEditing
+                isEditing: isEditing,
+                takesFocusRequests: true
             )
             if rows.isEmpty {
                 emptyState

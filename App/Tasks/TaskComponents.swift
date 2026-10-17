@@ -110,15 +110,25 @@ struct QuickAddField: View {
     var idleLine: AnyView?
     /// Mirrors keyboard focus, so a host can turn off unmodified shortcuts such as Space.
     var isEditing: Binding<Bool>?
+    /// Takes focus when the quick-add hotkey asks; only the popover's field does.
+    var takesFocusRequests = false
 
     @State private var text: String
     @FocusState private var isFocused: Bool
 
-    init(model: AppModel, text: String = "", toInbox: Bool = false, idleLine: AnyView? = nil, isEditing: Binding<Bool>? = nil) {
+    init(
+        model: AppModel,
+        text: String = "",
+        toInbox: Bool = false,
+        idleLine: AnyView? = nil,
+        isEditing: Binding<Bool>? = nil,
+        takesFocusRequests: Bool = false
+    ) {
         self.model = model
         self.toInbox = toInbox
         self.idleLine = idleLine
         self.isEditing = isEditing
+        self.takesFocusRequests = takesFocusRequests
         _text = State(initialValue: text)
     }
 
@@ -136,6 +146,8 @@ struct QuickAddField: View {
                     .focused($isFocused)
                     .onSubmit(submit)
                     .onChange(of: isFocused) { isEditing?.wrappedValue = isFocused }
+                    .onAppear(perform: takeFocusIfRequested)
+                    .onChange(of: takesFocusRequests && model.wantsQuickAddFocus) { takeFocusIfRequested() }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -151,6 +163,13 @@ struct QuickAddField: View {
                 idleLine
             }
         }
+    }
+
+    private func takeFocusIfRequested() {
+        guard takesFocusRequests, model.wantsQuickAddFocus else { return }
+        model.quickAddFocusTaken()
+        // The popover window is only just key; focus set in the same pass can be dropped.
+        Task { @MainActor in isFocused = true }
     }
 
     private func submit() {

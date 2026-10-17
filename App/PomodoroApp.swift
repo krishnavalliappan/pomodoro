@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             toggleTimer: { [weak model] in model?.toggle() },
             skipPhase: { [weak model] in model?.skip() },
             togglePopover: { [weak menuBar] in menuBar?.togglePopover(nil) },
-            quickAdd: { [weak menuBar] in menuBar?.openQuickAdd() }
+            quickAdd: { [weak menuBar] in menuBar?.focusQuickAdd() }
         ))
     }
 

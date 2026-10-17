@@ -330,6 +330,31 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(quickAdds, 1)
     }
 
+    /// Folded or not, the field sits above the Today list, so the request always has a taker.
+    func testQuickAddHotkeyOpensThePopoverAndRequestsFieldFocus() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        let windows = WindowRouter(model: model, launchAtLogin: LaunchAtLogin(service: FakeLoginItem(), model: model))
+        let menuBar = MenuBarController(model: model, windows: windows)
+        defer { if model.isPopoverVisible { menuBar.togglePopover(nil) } }
+        XCTAssertFalse(model.wantsQuickAddFocus)
+
+        menuBar.focusQuickAdd()
+        XCTAssertTrue(model.wantsQuickAddFocus)
+
+        model.quickAddFocusTaken()
+        XCTAssertFalse(model.wantsQuickAddFocus)
+    }
+
+    func testAnUntakenQuickAddRequestEndsWithThePopover() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.setPopoverVisible(true)
+        model.requestQuickAddFocus()
+        model.setPopoverVisible(false)
+        XCTAssertFalse(model.wantsQuickAddFocus)
+    }
+
     // MARK: Window
 
     func testSettingsWindowHasAToolbarTabPerPane() throws {

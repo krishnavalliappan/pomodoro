@@ -32,6 +32,8 @@ final class AppModel {
     private(set) var planner = SessionPlanner()
     private(set) var completedToday = 0
     private(set) var isPopoverVisible = false
+    /// Set by the quick-add hotkey until the popover's field takes focus.
+    private(set) var wantsQuickAddFocus = false
     /// The task the current focus counts toward, or the next one will. It outlives a stop, so
     /// the next start picks it up again.
     private(set) var selectedTaskID: UUID? = nil
@@ -215,6 +217,14 @@ final class AppModel {
         tasks.add(parseQuickAdd(text), defaultDay: toInbox ? nil : tasks.today)
     }
 
+    func requestQuickAddFocus() {
+        wantsQuickAddFocus = true
+    }
+
+    func quickAddFocusTaken() {
+        if wantsQuickAddFocus { wantsQuickAddFocus = false }
+    }
+
     func deleteTask(_ id: UUID) {
         // Sessions can't reference a deleted task, so the running one lets go of it first.
         if selectedTaskID == id { selectTask(nil) }
@@ -301,6 +311,8 @@ final class AppModel {
     func setPopoverVisible(_ visible: Bool) {
         guard visible != isPopoverVisible else { return }
         isPopoverVisible = visible
+        // A request the field never took mustn't steal focus on the next plain open.
+        if !visible { quickAddFocusTaken() }
         if visible {
             refreshSnapshot()
             refreshCompletedToday()
