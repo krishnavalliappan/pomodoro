@@ -7,9 +7,11 @@ import XCTest
 final class PopoverViewSnapshotTests: XCTestCase {
     private let focus: TimeInterval = 25 * 60
 
+    // MARK: Timer tab
+
     func testIdle() throws {
         let h = try harness()
-        assertPopover(h.makeModel(), "idle")
+        assertPopover(h.makeModel(), .timer, "idle")
     }
 
     func testFocusRunning() throws {
@@ -17,7 +19,7 @@ final class PopoverViewSnapshotTests: XCTestCase {
         let model = h.makeModel()
         model.startFocus()
         h.clock.advance(by: 6 * 60 + 18)
-        assertPopover(model, "focus")
+        assertPopover(model, .timer, "focus")
     }
 
     func testPaused() throws {
@@ -27,7 +29,7 @@ final class PopoverViewSnapshotTests: XCTestCase {
         h.clock.advance(by: 6 * 60 + 18)
         model.pause()
         h.clock.advance(by: 60)
-        assertPopover(model, "paused")
+        assertPopover(model, .timer, "paused")
     }
 
     func testOvertimeAwaitingDecision() throws {
@@ -36,7 +38,7 @@ final class PopoverViewSnapshotTests: XCTestCase {
         model.startFocus()
         h.scheduler.advance(by: focus + 135)
         XCTAssertEqual(model.prompt, .focusEnded)
-        assertPopover(model, "overtime")
+        assertPopover(model, .timer, "overtime")
     }
 
     func testBreakRunning() throws {
@@ -46,7 +48,7 @@ final class PopoverViewSnapshotTests: XCTestCase {
         h.scheduler.advance(by: focus)
         model.startBreak()
         h.clock.advance(by: 110)
-        assertPopover(model, "break")
+        assertPopover(model, .timer, "break")
     }
 
     func testBreakOver() throws {
@@ -57,65 +59,100 @@ final class PopoverViewSnapshotTests: XCTestCase {
         model.startBreak()
         h.scheduler.advance(by: 5 * 60 + 40)
         XCTAssertEqual(model.prompt, .breakEnded)
-        assertPopover(model, "breakOver")
+        assertPopover(model, .timer, "breakOver")
     }
 
     func testPendingOverride() throws {
         let h = try harness()
         let model = h.makeModel()
         XCTAssertTrue(model.applyOverride("50/10"))
-        assertPopover(model, "override")
+        assertPopover(model, .timer, "override")
     }
 
     func testPresetOneOff() throws {
         let h = try harness()
         let model = h.makeModel()
         model.toggleOneOffPreset(Preset.deep.id)
-        assertPopover(model, "presetOnce")
+        assertPopover(model, .timer, "presetOnce")
     }
 
-    // MARK: Tasks
-
-    /// A focus on a task: the picker names it, its row is highlighted, and dots show actuals.
+    /// A focus on a task: "on <task>" names it.
     func testFocusOnATask() throws {
         let h = try harness()
         let seeded = try h.seedTasks()
         let model = h.makeModel()
         model.startFocus(on: seeded.writeSpec.id)
         h.clock.advance(by: 6 * 60 + 18)
-        assertPopover(model, "tasks")
+        assertPopover(model, .timer, "task")
     }
 
-    func testNoTasks() throws {
-        let h = try harness()
-        assertPopover(h.makeModel(), "empty")
-    }
-
-    /// Typing shows what the parser found; the block running now is offered beside "No task".
-    func testQuickAddPreview() throws {
+    /// No task chosen while a block runs: the block's task is offered under the picker.
+    func testScheduledNowSuggestion() throws {
         let h = try harness()
         try h.seedTasks()
-        let model = h.makeModel()
-        assertPopover(model, "quickAdd", quickAddText: "Write spec ~3 @14:00 45m #work tomorrow")
+        assertPopover(h.makeModel(), .timer, "suggestion")
     }
 
-    /// Folded, the list is just its header and the popover shrinks to fit.
-    func testTodayCollapsed() throws {
-        let h = try harness()
-        try h.seedTasks()
-        let defaults = Self.freshDefaults()
-        defaults.set(false, forKey: PopoverTaskSection.expandedKey)
-        assertPopover(h.makeModel(), "collapsed", defaults: defaults)
-    }
-
-    /// The title truncates in the picker and the row rather than pushing the dots out.
-    func testLongTaskTitle() throws {
+    /// The title truncates rather than pushing the chevron out.
+    func testLongTaskTitleOnTimer() throws {
         let h = try harness()
         let long = try h.seedLongTitle()
         let model = h.makeModel()
         model.startFocus(on: long.id)
         h.clock.advance(by: 6 * 60 + 18)
-        assertPopover(model, "longTitle")
+        assertPopover(model, .timer, "longTitle")
+    }
+
+    // MARK: Tasks tab
+
+    /// During a focus on a task: its row is highlighted, and dots show actuals.
+    func testTasks() throws {
+        let h = try harness()
+        let seeded = try h.seedTasks()
+        let model = h.makeModel()
+        model.startFocus(on: seeded.writeSpec.id)
+        h.clock.advance(by: 6 * 60 + 18)
+        assertPopover(model, .tasks, "seeded")
+    }
+
+    func testNoTasks() throws {
+        let h = try harness()
+        assertPopover(h.makeModel(), .tasks, "empty")
+    }
+
+    /// Typing shows what the parser found, in the line the hint held.
+    func testQuickAddPreview() throws {
+        let h = try harness()
+        try h.seedTasks()
+        assertPopover(h.makeModel(), .tasks, "quickAdd", quickAddText: "Write spec ~3 @14:00 45m #work tomorrow")
+    }
+
+    func testLongTaskTitleInList() throws {
+        let h = try harness()
+        let long = try h.seedLongTitle()
+        let model = h.makeModel()
+        model.startFocus(on: long.id)
+        h.clock.advance(by: 6 * 60 + 18)
+        assertPopover(model, .tasks, "longTitle")
+    }
+
+    // MARK: Sounds and Stats tabs
+
+    func testSoundsPlaceholder() throws {
+        let h = try harness()
+        assertPopover(h.makeModel(), .sounds, "placeholder")
+    }
+
+    /// Uneven days with a gap on Sunday the 11th, and a six-day streak.
+    func testStats() throws {
+        let h = try ModelHarness(display: .time)
+        try h.seedStats()
+        assertPopover(h.makeModel(), .stats, "seeded")
+    }
+
+    func testStatsEmpty() throws {
+        let h = try ModelHarness(display: .time)
+        assertPopover(h.makeModel(), .stats, "empty")
     }
 
     /// Dots up to six, then a count; past the estimate in the overtime color.
@@ -156,20 +193,22 @@ final class PopoverViewSnapshotTests: XCTestCase {
 
     private func assertPopover(
         _ model: AppModel,
+        _ tab: PopoverTab,
         _ variant: String,
         quickAddText: String = "",
-        defaults: UserDefaults = freshDefaults(),
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         // Opening the popover refreshes the readout, as it does in the app.
         model.setPopoverVisible(true)
-        let view = PopoverView(model: model, actions: PopoverActions(quit: {}), quickAddText: quickAddText, defaults: defaults)
+        let navigation = PopoverNavigation(defaults: Self.freshDefaults())
+        navigation.select(tab)
+        let view = PopoverView(model: model, navigation: navigation, actions: PopoverActions(quit: {}), quickAddText: quickAddText)
         // No size: the popover takes the view's own height, as `sizingOptions` makes it do in the app.
         Snapshot.assertLightAndDark(
             view,
             name: "PopoverView",
-            variant: variant,
+            variant: "\(tab.rawValue)-\(variant)",
             file: file,
             line: line
         )

@@ -10,12 +10,16 @@ import SwiftUI
 final class WindowRouter {
     enum Destination: Hashable {
         case planner
+        /// The planner window, on its Stats tab.
+        case stats
         case settings
     }
 
     private let model: AppModel
     private let launchAtLogin: LaunchAtLogin
     private var windows: [Destination: NSWindow] = [:]
+    /// The planner window's tab, kept here so the popover's buttons can pick it.
+    let plannerRoute = PlannerRoute()
 
     init(model: AppModel, launchAtLogin: LaunchAtLogin) {
         self.model = model
@@ -23,8 +27,15 @@ final class WindowRouter {
     }
 
     func show(_ destination: Destination) {
-        let window = windows[destination] ?? makeWindow(for: destination)
-        windows[destination] = window
+        switch destination {
+        case .planner: plannerRoute.tab = .plan
+        case .stats: plannerRoute.tab = .stats
+        case .settings: break
+        }
+        // Plan and Stats share one window.
+        let key = destination == .stats ? Destination.planner : destination
+        let window = windows[key] ?? makeWindow(for: key)
+        windows[key] = window
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
     }
@@ -32,8 +43,8 @@ final class WindowRouter {
     private func makeWindow(for destination: Destination) -> NSWindow {
         let window: NSWindow
         switch destination {
-        case .planner:
-            window = NSWindow(contentViewController: NSHostingController(rootView: PlannerWindow(model: model)))
+        case .planner, .stats:
+            window = NSWindow(contentViewController: NSHostingController(rootView: PlannerWindow(model: model, route: plannerRoute)))
             window.title = "Planner"
             window.styleMask.insert(.resizable)
             window.setContentSize(PlannerWindow.size)

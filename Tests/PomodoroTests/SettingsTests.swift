@@ -330,17 +330,19 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(quickAdds, 1)
     }
 
-    /// Folded or not, the field sits above the Today list, so the request always has a taker.
+    /// Whichever tab was left showing, the hotkey brings the field's tab forward.
     func testQuickAddHotkeyOpensThePopoverAndRequestsFieldFocus() throws {
         let h = try ModelHarness()
         let model = h.makeModel()
         let windows = WindowRouter(model: model, launchAtLogin: LaunchAtLogin(service: FakeLoginItem(), model: model))
-        let menuBar = MenuBarController(model: model, windows: windows)
+        let menuBar = MenuBarController(model: model, windows: windows, defaults: PopoverViewSnapshotTests.freshDefaults())
         defer { if model.isPopoverVisible { menuBar.togglePopover(nil) } }
+        menuBar.navigation.select(.stats)
         XCTAssertFalse(model.wantsQuickAddFocus)
 
         menuBar.focusQuickAdd()
         XCTAssertTrue(model.wantsQuickAddFocus)
+        XCTAssertEqual(menuBar.navigation.tab, .tasks)
 
         model.quickAddFocusTaken()
         XCTAssertFalse(model.wantsQuickAddFocus)

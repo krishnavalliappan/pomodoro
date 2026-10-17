@@ -38,6 +38,11 @@ public struct Stats: Hashable, Sendable {
         week(containing: day(containing: date))
     }
 
+    /// `count` consecutive days ending on `day`, oldest first.
+    public func days(endingOn day: CivilDay, count: Int) -> [CivilDay] {
+        (0..<max(0, count)).reversed().map { day.adding(days: -$0) }
+    }
+
     /// The instants `day` covers in `calendar`'s time zone: 23 or 25 hours across DST.
     public func range(of day: CivilDay) -> Range<Date> {
         day.start(in: calendar)..<day.adding(days: 1).start(in: calendar)

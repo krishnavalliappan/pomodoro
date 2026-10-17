@@ -19,6 +19,16 @@ public struct StatsRepository: Sendable {
         try database.writer.read { db in try Self.weekReport(db, week: week, stats: stats, now: now) }
     }
 
+    /// Focus per day for the `count` days ending today, oldest first, empty days included.
+    public func recentDays(_ count: Int, now: Date) throws -> [DayFocus] {
+        let stats = stats()
+        let days = stats.days(endingOn: stats.day(containing: now), count: count)
+        guard let first = days.first, let last = days.last else { return [] }
+        let range = stats.range(of: first).lowerBound..<stats.range(of: last).upperBound
+        let sessions = try database.writer.read { db in try Self.started(in: range).fetchAll(db) }
+        return stats.dailyFocus(sessions, on: days)
+    }
+
     /// Emits the report for `week`, then a fresh one after each change to sessions or tasks.
     /// "Today", for the highlight and the streak, is fixed at `now`; subscribe again for a new day.
     public func observeWeekReport(_ week: StatsWeek, stats: Stats, now: Date) -> AsyncStream<WeekReport> {

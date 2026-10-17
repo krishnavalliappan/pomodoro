@@ -10,14 +10,19 @@ final class PopoverSizeStabilityTests: XCTestCase {
     private let passes = 20
 
     func testIdleSizeIsStable() throws {
-        try assertStableSize { _ in }
+        try assertStableSize(.timer) { _ in }
     }
 
     func testTasksSizeIsStable() throws {
-        try assertStableSize { try $0.seedTasks() }
+        try assertStableSize(.tasks) { try $0.seedTasks() }
+    }
+
+    func testStatsSizeIsStable() throws {
+        try assertStableSize(.stats) { try $0.seedStats() }
     }
 
     private func assertStableSize(
+        _ tab: PopoverTab,
         seed: (ModelHarness) throws -> Void,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -29,7 +34,9 @@ final class PopoverSizeStabilityTests: XCTestCase {
             try seed(h)
             let model = h.makeModel()
             model.setPopoverVisible(true)
-            let view = PopoverView(model: model, actions: PopoverActions(quit: {}), defaults: PopoverViewSnapshotTests.freshDefaults())
+            let navigation = PopoverNavigation(defaults: PopoverViewSnapshotTests.freshDefaults())
+            navigation.select(tab)
+            let view = PopoverView(model: model, navigation: navigation, actions: PopoverActions(quit: {}))
             for (appearance, scheme) in [(NSAppearance.Name.aqua, ColorScheme.light), (.darkAqua, .dark)] {
                 let size = Snapshot.renderedPixelSize(view, appearance: appearance, scheme: scheme)
                 sizes.append("\(Int(size.width))x\(Int(size.height))")

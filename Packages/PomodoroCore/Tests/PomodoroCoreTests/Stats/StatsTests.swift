@@ -35,6 +35,13 @@ struct StatsTests {
         #expect(day(2027, 1, 4).days(to: day(2026, 12, 25)) == -10)
     }
 
+    @Test func daysEndingOnCrossMonthsOldestFirst() {
+        let stats = Stats(calendar: Fixture.utc)
+        #expect(stats.days(endingOn: day(2026, 11, 2), count: 4) == [day(2026, 10, 30), day(2026, 10, 31), day(2026, 11, 1), day(2026, 11, 2)])
+        #expect(stats.days(endingOn: day(2026, 11, 2), count: 1) == [day(2026, 11, 2)])
+        #expect(stats.days(endingOn: day(2026, 11, 2), count: 0).isEmpty)
+    }
+
     // MARK: - Weeks
 
     @Test func firstWeekdayDefaultsToTheCalendars() {

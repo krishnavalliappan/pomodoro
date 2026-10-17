@@ -14,7 +14,6 @@ final class StatsTests: XCTestCase {
             start: yesterday, end: yesterday + focus, plannedSeconds: focus, activeSeconds: focus, completed: true))
         let model = h.makeModel()
         XCTAssertEqual(model.today, TodaySummary(day: CivilDay(year: 2026, month: 10, day: 17), streak: Streak(current: 1, best: 1)))
-        XCTAssertEqual(TodayRow.text(model.today), "No focus yet · 🔥 1-day streak")
 
         model.startFocus()
         h.scheduler.advance(by: focus + 60)
@@ -24,7 +23,6 @@ final class StatsTests: XCTestCase {
         XCTAssertEqual(model.today.focusedSeconds, focus + 60, accuracy: 0.001)
         XCTAssertEqual(model.today.streak, Streak(current: 2, best: 2))
         XCTAssertEqual(model.completedToday, 1)
-        XCTAssertEqual(TodayRow.text(model.today), "26m · 1 🍅 · 🔥 2-day streak")
     }
 
     func testStoppedFocusAddsTimeButNoPomodoro() throws {
@@ -36,17 +34,13 @@ final class StatsTests: XCTestCase {
         XCTAssertEqual(model.today.completedPomodoros, 0)
         XCTAssertEqual(model.today.focusedSeconds, 600, accuracy: 0.001)
         XCTAssertEqual(model.today.streak, .zero)
-        XCTAssertEqual(TodayRow.text(model.today), "10m · 0 🍅")
     }
 
-    func testTodayRowText() {
+    func testPopoverStatsAccessibilityText() {
         let day = CivilDay(year: 2026, month: 10, day: 17)
         let summary = TodaySummary(day: day, focusedSeconds: 100 * 60, completedPomodoros: 4, streak: Streak(current: 6, best: 9))
-        XCTAssertEqual(TodayRow.text(summary), "1h 40m · 4 🍅 · 🔥 6-day streak")
-        XCTAssertEqual(TodayRow.text(summary, isLong: false), "1h 40m · 4 🍅 · 🔥 6d")
-        XCTAssertEqual(TodayRow.text(TodaySummary(day: day)), "No focus yet")
-        XCTAssertEqual(TodayRow.text(TodaySummary(day: day), isLong: false), "0m")
-        XCTAssertEqual(TodayRow.accessibilityText(summary), "Today: 1h 40m of focus, 4 pomodoros, 6-day streak")
+        XCTAssertEqual(PopoverStatsTab.accessibilityText(summary), "Today: 1h 40m of focus, 4 pomodoros, 6-day streak")
+        XCTAssertEqual(PopoverStatsTab.accessibilityText(TodaySummary(day: day)), "Today: 0m of focus, 0 pomodoros")
     }
 
     // MARK: - Stats store
