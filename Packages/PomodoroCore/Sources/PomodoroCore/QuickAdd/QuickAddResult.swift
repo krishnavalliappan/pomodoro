@@ -4,8 +4,8 @@ public struct QuickAddResult: Sendable, Equatable {
     public var title: String
     public var estimate: Int?
     public var tag: String?
-    /// Start of the scheduled day. Set whenever `blockStart` is.
-    public var day: Date?
+    /// The scheduled day in the parser's calendar. Set whenever `blockStart` is.
+    public var day: CivilDay?
     public var blockStart: Date?
     public var blockDuration: TimeInterval?
 
@@ -13,7 +13,7 @@ public struct QuickAddResult: Sendable, Equatable {
         title: String,
         estimate: Int? = nil,
         tag: String? = nil,
-        day: Date? = nil,
+        day: CivilDay? = nil,
         blockStart: Date? = nil,
         blockDuration: TimeInterval? = nil
     ) {

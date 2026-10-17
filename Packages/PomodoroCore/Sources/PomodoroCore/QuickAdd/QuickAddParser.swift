@@ -2,9 +2,13 @@ import Foundation
 
 /// Parses `Write spec ~3 @14:00 45m #work tomorrow` into a `QuickAddResult`.
 ///
-/// Tokens are whitespace-separated and order-independent. The first token of each kind
-/// wins; later ones of the same kind are still removed from the title. Anything that
-/// isn't a valid token stays in the title, and a leading `\` makes a token literal.
+/// Tokens are whitespace-separated. Marked tokens (`~3`, `@14:00`, `#work`) count anywhere.
+/// Unmarked ones (`45m`, `today`, `tomorrow`, weekdays) count only inside the trailing
+/// metadata group, the longest run of recognized tokens at the end, so prose such as
+/// `Prep Monday standup notes` keeps its title. A bare duration also needs an `@time`
+/// somewhere, because it only sizes a block. Within a kind the first token wins and later
+/// ones are still removed. Everything else stays in the title verbatim. A leading `\`
+/// makes a token literal and, being plain text, ends the metadata group.
 public struct QuickAddParser: Sendable {
     public var calendar: Calendar
     public var pomodoroLength: TimeInterval
@@ -21,6 +25,17 @@ public struct QuickAddParser: Sendable {
     }
 
     public func parse(_ input: String, now: Date) -> QuickAddResult {
+        let words = input.split(whereSeparator: \.isWhitespace)
+        var tokens = words.map { word -> Token? in word.first == "\\" ? nil : token(word, now: now) }
+        let hasStart = tokens.contains { if case .time? = $0 { true } else { false } }
+        if !hasStart {
+            tokens = tokens.map { token -> Token? in
+                if case .duration? = token { return nil }
+                return token
+            }
+        }
+        let metadataStart = tokens.lastIndex { $0 == nil }.map { $0 + 1 } ?? 0
+
         var titleWords: [Substring] = []
         var estimate: Int?
         var tag: String?
@@ -28,20 +43,15 @@ public struct QuickAddParser: Sendable {
         var time: (hour: Int, minute: Int)?
         var duration: TimeInterval?
 
-        for word in input.split(whereSeparator: \.isWhitespace) {
-            if word.first == "\\" {
-                let rest = word.dropFirst()
-                let escapable = rest.first.map { "#~@".contains($0) } ?? false
-                titleWords.append(escapable || token(rest, now: now) != nil ? rest : word)
-                continue
-            }
-            switch token(word, now: now) {
+        for (index, (word, token)) in zip(words, tokens).enumerated() {
+            let counts = index >= metadataStart || token?.isMarked == true
+            switch counts ? token : nil {
             case .estimate(let n): estimate = estimate ?? n
             case .tag(let t): tag = tag ?? t
             case .day(let offset): dayOffset = dayOffset ?? offset
             case .time(let h, let m): time = time ?? (hour: h, minute: m)
             case .duration(let d): duration = duration ?? d
-            case nil: titleWords.append(word)
+            case nil: titleWords.append(titleText(word, now: now))
             }
         }
 
@@ -71,7 +81,7 @@ public struct QuickAddParser: Sendable {
             title: titleWords.joined(separator: " "),
             estimate: estimate,
             tag: tag,
-            day: day,
+            day: day.map { CivilDay(containing: $0, in: calendar) },
             blockStart: blockStart,
             blockDuration: duration
         )
@@ -83,6 +93,20 @@ public struct QuickAddParser: Sendable {
         case day(offset: Int)
         case time(hour: Int, minute: Int)
         case duration(TimeInterval)
+
+        var isMarked: Bool {
+            switch self {
+            case .estimate, .tag, .time: true
+            case .day, .duration: false
+            }
+        }
+    }
+
+    private func titleText(_ word: Substring, now: Date) -> Substring {
+        guard word.first == "\\" else { return word }
+        let rest = word.dropFirst()
+        let escapable = rest.first.map { "#~@".contains($0) } ?? false
+        return escapable || token(rest, now: now) != nil ? rest : word
     }
 
     private func token(_ word: Substring, now: Date) -> Token? {
