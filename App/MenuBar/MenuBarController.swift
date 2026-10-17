@@ -17,6 +17,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private var renderedKey: String?
 
+    /// Focuses the popover's quick-add field. Set by the popover once it has one (#10); until
+    /// then the quick-add hotkey just opens the popover.
+    var focusQuickAdd: (@MainActor () -> Void)?
+
     init(model: AppModel, windows: WindowRouter) {
         self.model = model
         self.windows = windows
@@ -81,7 +85,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     // MARK: - Popover
 
-    @objc private func togglePopover(_ sender: Any?) {
+    @objc func togglePopover(_ sender: Any?) {
         if popover.isShown {
             popover.performClose(sender)
         } else {
@@ -89,7 +93,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
     }
 
-    private func showPopover() {
+    func openQuickAdd() {
+        if !popover.isShown { showPopover() }
+        focusQuickAdd?()
+    }
+
+    func showPopover() {
         guard let button = statusItem.button else { return }
         // LSUIElement apps aren't active by default; without this the popover gets no keystrokes.
         NSApp.activate()

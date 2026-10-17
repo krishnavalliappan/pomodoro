@@ -13,10 +13,14 @@ final class WindowRouter {
         case settings
     }
 
-    /// Set once at launch; the planner shows its tasks.
-    var model: AppModel?
-
+    private let model: AppModel
+    private let launchAtLogin: LaunchAtLogin
     private var windows: [Destination: NSWindow] = [:]
+
+    init(model: AppModel, launchAtLogin: LaunchAtLogin) {
+        self.model = model
+        self.launchAtLogin = launchAtLogin
+    }
 
     func show(_ destination: Destination) {
         let window = windows[destination] ?? makeWindow(for: destination)
@@ -29,15 +33,12 @@ final class WindowRouter {
         let window: NSWindow
         switch destination {
         case .planner:
-            guard let model else { preconditionFailure("the planner opened before the model existed") }
             window = NSWindow(contentViewController: NSHostingController(rootView: PlannerView(model: model)))
             window.title = "Planner"
             window.styleMask.insert(.resizable)
             window.setContentSize(PlannerView.size)
         case .settings:
-            window = NSWindow(contentViewController: NSHostingController(rootView: SettingsPlaceholderView()))
-            window.title = "Settings"
-            window.setContentSize(SettingsPlaceholderView.size)
+            window = SettingsWindow.make(model: model, launchAtLogin: launchAtLogin)
         }
         window.isReleasedWhenClosed = false
         window.center()

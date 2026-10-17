@@ -26,6 +26,9 @@ final class AppModel {
     /// Set while the end of a phase is waiting on the user: *Start break / +5 min / Keep going*.
     private(set) var prompt: EndPrompt? = nil
     private(set) var settings: AppSettings
+    /// The last settings save that failed, e.g. a newer build owns the stored data. Edits still
+    /// apply for this run; Settings shows this so they aren't silently lost on quit.
+    private(set) var settingsSaveError: SettingsStoreError? = nil
     private(set) var planner = SessionPlanner()
     private(set) var completedToday = 0
     private(set) var isPopoverVisible = false
@@ -267,12 +270,18 @@ final class AppModel {
         settings = updated
         do {
             try settingsStore.save(updated)
+            if settingsSaveError != nil { settingsSaveError = nil }
         } catch {
             Self.log.error("saving settings failed: \(String(describing: error), privacy: .public)")
+            if let error = error as? SettingsStoreError, error != settingsSaveError { settingsSaveError = error }
         }
         sound.settings = updated.sounds
         // A new nudge interval or auto-start moves the boundary, so this takes the same path as an action.
         handle([])
+    }
+
+    func dismissSettingsSaveError() {
+        settingsSaveError = nil
     }
 
     /// Cancels pending timers and the tick. The run loop would otherwise keep a one-shot timer
