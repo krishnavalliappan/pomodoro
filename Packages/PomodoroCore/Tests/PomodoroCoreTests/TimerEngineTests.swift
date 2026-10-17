@@ -778,3 +778,190 @@ struct TimerStatePersistenceTests {
         #expect(!configuration.autoStartFocus)
     }
 }
+
+private func isOvertime(_ status: TimerStatus) -> Bool {
+    if case .overtime = status { true } else { false }
+}
+
+struct TimerEngineClockRollbackTests {
+    @Test func rollbackWhileRunningKeepsElapsedAndShiftsTheBoundary() {
+        let (engine, clock) = makeEngine(TimerConfiguration(nudgeInterval: nil))
+        engine.start()
+        clock.now = t0 + 1000
+        engine.reconcile()
+        clock.now = t0 + 400
+        #expect(engine.reconcile().isEmpty)
+        #expect(engine.snapshot().elapsed == 1000)
+        #expect(engine.nextBoundary == t0 + 900)
+        clock.now = t0 + 900
+        #expect(kinds(engine.reconcile()) == ["focusEnded"])
+    }
+
+    @Test func rollbackDuringPausedOvertimeDoesNotUndoTheEnd() throws {
+        let (engine, clock) = makeEngine(TimerConfiguration(nudgeInterval: nil))
+        engine.start()
+        clock.now = t0 + focus
+        #expect(kinds(engine.reconcile()) == ["focusEnded"])
+        clock.now = t0 + 1800
+        engine.pause()
+        clock.now = t0 + 1200
+        #expect(engine.resume().isEmpty)
+        #expect(isOvertime(engine.status))
+        #expect(engine.snapshot().overtime == 300)
+        clock.advance(by: 600)
+        #expect(engine.reconcile().isEmpty)
+        let record = try #require(records(engine.stopAndLog()).first)
+        #expect(record.outcome == .completed)
+        #expect(record.activeDuration == 2400)
+        #expect(record.overtime == 900)
+        #expect(record.endedAt == record.startedAt + record.activeDuration + record.pausedDuration)
+    }
+
+    @Test func rollbackInOvertimeKeepsOvertime() {
+        let (engine, clock) = makeEngine()
+        engine.start()
+        clock.now = t0 + focus + 100
+        #expect(kinds(engine.reconcile()) == ["focusEnded"])
+        clock.now = t0 + 1000
+        #expect(engine.reconcile().isEmpty)
+        #expect(engine.snapshot().overtime == 100)
+        #expect(engine.status == .overtime(since: t0 + 900))
+        #expect(engine.nextBoundary == t0 + 900 + 600)
+    }
+
+    @Test func rollbackBeforeTheStartKeepsTheRecordValid() throws {
+        let (engine, clock) = makeEngine()
+        engine.start()
+        clock.now = t0 + 1000
+        engine.reconcile()
+        clock.now = t0 - 500
+        let record = try #require(records(engine.stopAndLog()).first)
+        #expect(record.activeDuration == 1000)
+        #expect(record.startedAt == t0 - 1500)
+        #expect(record.endedAt == t0 - 500)
+        #expect(record.outcome == .abandoned)
+    }
+
+    @Test func rollbackWhileIdleStartsFromTheNewTime() {
+        let (engine, clock) = makeEngine()
+        engine.start()
+        engine.reset()
+        clock.now = t0 - 3600
+        engine.start()
+        #expect(engine.state.phaseStartedAt == t0 - 3600)
+        #expect(engine.nextBoundary == t0 - 3600 + focus)
+    }
+
+    @Test func rollbackIsDetectedAfterRestore() throws {
+        let (engine, clock) = makeEngine(TimerConfiguration(nudgeInterval: nil))
+        engine.start()
+        clock.now = t0 + 1000
+        engine.reconcile()
+        let data = try JSONEncoder().encode(engine.state)
+        clock.now = t0 + 400
+        let restored = TimerEngine(clock: clock, state: try JSONDecoder().decode(TimerState.self, from: data))
+        #expect(restored.reconcile().isEmpty)
+        #expect(restored.snapshot().elapsed == 1000)
+        #expect(restored.nextBoundary == t0 + 900)
+    }
+}
+
+struct TimerEngineBoundaryTests {
+    @Test(arguments: [TimerPhase.focus, .shortBreak])
+    func resumingJustBeforeTheBoundaryStillEndsThePhaseOnce(phase: TimerPhase) throws {
+        let (engine, clock) = makeEngine(TimerConfiguration(nudgeInterval: nil))
+        engine.start(phase: phase)
+        let planned = engine.snapshot().plannedDuration
+        clock.now = t0 + planned - 0.0005
+        engine.pause()
+        clock.advance(by: 100)
+        #expect(engine.resume().isEmpty)
+        #expect(engine.status == .running)
+        let boundary = try #require(engine.nextBoundary)
+        #expect(abs(boundary.timeIntervalSince(t0 + planned + 100)) < 0.001)
+        clock.now = boundary
+        #expect(kinds(engine.reconcile()) == [phase == .focus ? "focusEnded" : "breakEnded"])
+        clock.advance(by: 3600)
+        #expect(engine.reconcile().isEmpty)
+    }
+}
+
+struct TimerEngineNudgeIntervalChangeTests {
+    /// Reaches overtime and takes the 600 s nudges at +600 and +1200 by jumping to each advertised boundary.
+    private func engineAfterTwoNudges() -> (TimerEngine, TestClock) {
+        let (engine, clock) = makeEngine()
+        engine.start()
+        while let boundary = engine.nextBoundary, boundary <= t0 + focus + 1200 {
+            clock.now = boundary
+            engine.reconcile()
+        }
+        return (engine, clock)
+    }
+
+    @Test func increasingTheIntervalCountsFromTheLastNudge() {
+        let (engine, clock) = engineAfterTwoNudges()
+        engine.configuration.nudgeInterval = 1200
+        #expect(engine.nextBoundary == t0 + focus + 2400)
+        clock.now = t0 + focus + 2400
+        #expect(kinds(engine.reconcile()) == ["nudge:2400"])
+        #expect(engine.nextBoundary == t0 + focus + 3600)
+    }
+
+    @Test func decreasingTheIntervalCountsFromTheLastNudge() {
+        let (engine, clock) = engineAfterTwoNudges()
+        clock.advance(by: 100)
+        engine.configuration.nudgeInterval = 300
+        #expect(engine.nextBoundary == t0 + focus + 1500)
+        clock.now = t0 + focus + 1500
+        #expect(kinds(engine.reconcile()) == ["nudge:1500"])
+        #expect(engine.nextBoundary == t0 + focus + 1800)
+    }
+
+    @Test func decreasingPastTheNextNudgeRestartsFromNowWithoutNudging() {
+        let (engine, clock) = engineAfterTwoNudges()
+        clock.advance(by: 500)
+        engine.configuration.nudgeInterval = 300
+        #expect(engine.nextBoundary == t0 + focus + 2000)
+        #expect(engine.reconcile().isEmpty)
+    }
+
+    @Test func disablingAndReenablingRestartsFromNow() {
+        let (engine, clock) = engineAfterTwoNudges()
+        engine.configuration.nudgeInterval = nil
+        #expect(engine.nextBoundary == nil)
+        clock.now = t0 + focus + 2500
+        #expect(engine.reconcile().isEmpty)
+        engine.configuration.nudgeInterval = 600
+        #expect(engine.nextBoundary == t0 + focus + 3100)
+        #expect(engine.reconcile().isEmpty)
+        clock.now = t0 + focus + 3100
+        #expect(kinds(engine.reconcile()) == ["nudge:3100"])
+    }
+
+    @Test func restoringWithADifferentIntervalCountsFromTheLastNudge() throws {
+        let (engine, clock) = engineAfterTwoNudges()
+        let data = try JSONEncoder().encode(engine.state)
+        let restored = TimerEngine(
+            configuration: TimerConfiguration(nudgeInterval: 1200),
+            clock: clock,
+            state: try JSONDecoder().decode(TimerState.self, from: data)
+        )
+        #expect(restored.nextBoundary == t0 + focus + 2400)
+    }
+}
+
+struct TimerEngineResetTests {
+    @Test(arguments: [0, 60] as [TimeInterval])
+    func resetAtOrAfterAnOverdueBoundaryDeliversNothing(lateness: TimeInterval) {
+        let (engine, clock) = makeEngine(TimerConfiguration(autoStartBreaks: true, autoStartFocus: true))
+        var delivered: [TimerEvent] = []
+        engine.onEvent = { delivered.append($0) }
+        engine.start()
+        delivered.removeAll()
+        clock.advance(by: focus + lateness)
+        #expect(engine.reset().isEmpty)
+        #expect(delivered.isEmpty)
+        #expect(engine.state == TimerState())
+        #expect(engine.nextBoundary == nil)
+    }
+}
