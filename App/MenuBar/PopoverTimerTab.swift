@@ -531,6 +531,8 @@ struct Chip: View {
                     Image(systemName: symbol).imageScale(.small)
                 }
             }
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 10)
             .frame(height: Self.height)
             .foregroundStyle(isSelected ? tint : .primary)

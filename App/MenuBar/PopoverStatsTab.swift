@@ -107,7 +107,7 @@ private struct WeekSparkline: View {
                     Capsule()
                         .fill(fill(day))
                         .frame(height: barHeight(day))
-                        .frame(maxWidth: 18)
+                        .frame(width: 12)
                         .frame(height: height, alignment: .bottom)
                     Text(calendar.veryShortWeekdaySymbols[day.day.weekday - 1])
                         .font(.caption2.weight(day.day == today ? .bold : .regular))
