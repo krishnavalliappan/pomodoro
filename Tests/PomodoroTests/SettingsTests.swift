@@ -99,7 +99,10 @@ final class SettingsTests: XCTestCase {
     func testTypedMinutesCommitOnceOnReturn() throws {
         let h = try ModelHarness()
         let model = h.makeModel()
+        let idle = h.scheduler.scheduledCount
         model.startFocus()
+        // One pass through the model reschedules the boundary and the display refresh.
+        let perPass = h.scheduler.scheduledCount - idle
         var updates = 0
         model.onEngineUpdate = { _, _ in updates += 1 }
         let scheduled = h.scheduler.scheduledCount
@@ -114,7 +117,7 @@ final class SettingsTests: XCTestCase {
 
         draft.commit(to: minutes)
         XCTAssertEqual(updates, 1)
-        XCTAssertEqual(h.scheduler.scheduledCount, scheduled + 1)
+        XCTAssertEqual(h.scheduler.scheduledCount, scheduled + perPass, "rescheduled once")
         XCTAssertEqual(h.settingsStore.load().defaultProfile.shortBreakDuration, 45 * 60)
         XCTAssertEqual(draft.displayed(minutes.wrappedValue), "45")
 
