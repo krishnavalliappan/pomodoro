@@ -69,7 +69,7 @@ final class TaskFlowTests: XCTestCase {
         XCTAssertEqual(QuickAddPreview.chips(for: model.parseQuickAdd("Plain"), today: today, calendar: ModelHarness.utc), [])
         XCTAssertEqual(QuickAddPreview.durationText(90 * 60), "1h30m")
         XCTAssertEqual(QuickAddPreview.durationText(2 * 3600), "2h")
-        XCTAssertEqual(QuickAddPreview.dayText(CivilDay(year: 2026, month: 10, day: 20), today: today, calendar: ModelHarness.utc), "Tuesday")
+        XCTAssertEqual(QuickAddPreview.dayText(CivilDay(year: 2026, month: 10, day: 20), today: today, calendar: ModelHarness.utc), "Tue")
     }
 
     // MARK: Starting on a task

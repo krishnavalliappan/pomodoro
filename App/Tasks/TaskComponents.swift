@@ -205,7 +205,7 @@ struct QuickAddPreview: View {
         case 1: return "tomorrow"
         case 2..<7:
             let weekday = calendar.component(.weekday, from: day.start(in: calendar))
-            return calendar.weekdaySymbols[weekday - 1]
+            return calendar.shortWeekdaySymbols[weekday - 1]
         default: return day.isoString
         }
     }

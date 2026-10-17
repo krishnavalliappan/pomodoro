@@ -33,6 +33,7 @@ struct TaskListView: View {
                 if let selection { model.deleteTask(selection) }
             }
         }
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     @ViewBuilder

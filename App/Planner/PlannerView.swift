@@ -8,10 +8,12 @@ struct PlannerView: View {
     var model: AppModel
 
     var body: some View {
-        NavigationSplitView {
+        // A plain split rather than NavigationSplitView: the timeline (#11) owns the detail pane's
+        // layout, and a NavigationSplitView sidebar doesn't render outside a live window.
+        HStack(spacing: 0) {
             TaskListView(model: model)
-                .navigationSplitViewColumnWidth(min: 260, ideal: Self.sidebarWidth, max: 420)
-        } detail: {
+                .frame(width: Self.sidebarWidth)
+            Divider()
             TimelinePlaceholder()
         }
         .frame(minWidth: 640, minHeight: 420)
