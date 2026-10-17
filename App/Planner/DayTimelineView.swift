@@ -8,6 +8,8 @@ import SwiftUI
 struct DayTimelineView: View {
     static let gutter: CGFloat = 52
     private static let space = "timeline"
+    /// Just below the top, so the first hour's label, which sits above its line, isn't cut off.
+    private static let scrollAnchor = UnitPoint(x: 0, y: 0.03)
 
     @Bindable var store: TimelineStore
 
@@ -26,8 +28,8 @@ struct DayTimelineView: View {
                         .padding(.top, 10)
                         .padding(.bottom, 16)
                 }
-                .onAppear { proxy.scrollTo(store.initialScrollHour, anchor: .top) }
-                .onChange(of: store.day) { proxy.scrollTo(store.initialScrollHour, anchor: .top) }
+                .onAppear { proxy.scrollTo(store.initialScrollHour, anchor: Self.scrollAnchor) }
+                .onChange(of: store.day) { proxy.scrollTo(store.initialScrollHour, anchor: Self.scrollAnchor) }
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
@@ -47,15 +49,13 @@ struct DayTimelineView: View {
         SwiftUI.TimelineView(.everyMinute) { _ in
             ZStack(alignment: .topLeading) {
                 HourGrid(layout: layout, calendar: store.calendar, gutter: Self.gutter)
+                // The line runs behind the blocks so it never strikes through a title; the dot
+                // in the gutter stays on top.
+                if showsNow { nowLine(dot: false) }
                 blocksArea
                     .padding(.leading, Self.gutter)
                     .padding(.trailing, 10)
-                if store.isToday, store.layout.visible.contains(store.now) {
-                    NowLine()
-                        .padding(.leading, Self.gutter - 4)
-                        .offset(y: layout.y(for: store.now) - 4)
-                        .allowsHitTesting(false)
-                }
+                if showsNow { nowLine(dot: true) }
                 if store.editor != nil {
                     BlockEditorCard(store: store)
                         .offset(x: Self.gutter + 12, y: editorY)
@@ -64,6 +64,17 @@ struct DayTimelineView: View {
             .frame(height: layout.totalHeight, alignment: .top)
             .coordinateSpace(name: Self.space)
         }
+    }
+
+    private var showsNow: Bool {
+        store.isToday && layout.visible.contains(store.now)
+    }
+
+    private func nowLine(dot: Bool) -> some View {
+        NowLine(dot: dot)
+            .padding(.leading, Self.gutter - 4)
+            .offset(y: layout.y(for: store.now) - 4)
+            .allowsHitTesting(false)
     }
 
     private var blocksArea: some View {
@@ -282,17 +293,23 @@ struct HourGrid: View {
     }
 }
 
+/// Either half of the now line: the line itself, or the dot that marks it in the gutter.
 struct NowLine: View {
+    var dot: Bool
+
     var body: some View {
         HStack(spacing: 0) {
             Circle()
                 .fill(PhaseStyle.focusTint)
                 .frame(width: 8, height: 8)
+                .opacity(dot ? 1 : 0)
             Rectangle()
                 .fill(PhaseStyle.focusTint)
                 .frame(height: 1.5)
+                .opacity(dot ? 0 : 1)
         }
         .frame(height: 8)
+        .accessibilityHidden(!dot)
         .accessibilityLabel("Now")
     }
 }
