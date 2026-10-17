@@ -69,27 +69,9 @@ enum Snapshot {
     static func makeHost(_ view: some View, appearance: NSAppearance.Name, scheme: ColorScheme, size: CGSize?) -> NSView {
         let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))
         host.appearance = NSAppearance(named: appearance)
-        if let size {
-            host.frame = CGRect(origin: .zero, size: size)
-        } else {
-            host.frame = CGRect(origin: .zero, size: fittedSize(of: host))
-        }
+        // Content-sized hosts measure themselves, in their own appearance, so the frame is what they lay out.
+        host.frame = CGRect(origin: .zero, size: size ?? PopoverView.integralSize(host.fittingSize))
         return host
-    }
-
-    /// Measured on the host that renders, not a throwaway one, and re-measured until two passes
-    /// agree: a cold first layout can report a whole point more than the settled one (#38).
-    @MainActor
-    static func fittedSize(of host: NSView) -> CGSize {
-        var size = CGSize.zero
-        for _ in 0..<5 {
-            let next = PopoverView.integralSize(host.fittingSize)
-            if next == size { break }
-            size = next
-            host.frame.size = size
-            host.layoutSubtreeIfNeeded()
-        }
-        return size
     }
 
     /// The pixel size `assertLightAndDark` writes for `view` when it's content-sized.

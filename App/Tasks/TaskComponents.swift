@@ -143,6 +143,8 @@ struct QuickAddField: View {
                     .foregroundStyle(.secondary)
                 TextField(placeholder, text: $text)
                     .textFieldStyle(.plain)
+                    // Pinned like the popover's Custom field: AppKit's own height isn't stable (#38).
+                    .frame(height: 16)
                     .focused($isFocused)
                     .onSubmit(submit)
                     .onChange(of: isFocused) { isEditing?.wrappedValue = isFocused }
