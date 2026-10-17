@@ -14,18 +14,25 @@ public struct TimelineLayout: Sendable, Equatable {
     public let hourHeight: Double
     public let snap: TimeInterval
     public let minimumDuration: TimeInterval
+    /// A moment on the snap grid, normally a wall-clock hour. Snap points are this plus whole
+    /// multiples of `snap`, so they stay on the wall clock's quarter hours even when the
+    /// visible range doesn't start or end on one.
+    public let gridOrigin: Date
 
+    /// `gridOrigin` defaults to the visible start.
     public init(
         visible: Range<Date>,
         hourHeight: Double,
         snap: TimeInterval = defaultSnap,
-        minimumDuration: TimeInterval = defaultMinimumDuration
+        minimumDuration: TimeInterval = defaultMinimumDuration,
+        gridOrigin: Date? = nil
     ) {
         precondition(hourHeight > 0 && snap > 0 && minimumDuration > 0)
         self.visible = visible
         self.hourHeight = hourHeight
         self.snap = snap
         self.minimumDuration = minimumDuration
+        self.gridOrigin = gridOrigin ?? visible.lowerBound
     }
 
     /// `startHour` to `endHour` on `day`, in wall-clock hours of `calendar`'s time zone.
@@ -72,11 +79,14 @@ public struct TimelineLayout: Sendable, Equatable {
         height / hourHeight * 3600
     }
 
-    /// The nearest snap point. Snap points count from the visible start, which sits on an hour,
-    /// so they fall on the wall clock's quarter hours even in zones offset by :30 or :45.
+    /// The nearest snap point. Snap points count from `gridOrigin`, which sits on an hour, so
+    /// they fall on the wall clock's quarter hours even in zones offset by :30 or :45.
     public func snapped(_ date: Date) -> Date {
-        let offset = date.timeIntervalSince(visible.lowerBound)
-        return visible.lowerBound + (offset / snap).rounded() * snap
+        snapped(date, .toNearestOrAwayFromZero)
+    }
+
+    public func isOnGrid(_ date: Date) -> Bool {
+        snapped(date) == date
     }
 
     public func clamped(_ date: Date) -> Date {
@@ -85,39 +95,46 @@ public struct TimelineLayout: Sendable, Equatable {
 
     // MARK: - Drags
 
-    /// Where a block of `duration` may start: inside the visible range, or at its top if it's
-    /// longer than the range.
+    /// The first and last snap points inside the visible range.
+    public var firstSlot: Date { snapped(visible.lowerBound, .up) }
+    public var lastSlot: Date { max(snapped(visible.upperBound, .down), firstSlot) }
+
+    /// Where a block of `duration` may start: a snap point inside the visible range, or the top
+    /// slot if it's longer than the range. Clamping to snap points rather than to the range's
+    /// edges keeps a 50-minute block dropped at 23:40 on 23:00, not 23:10.
     public func clampedStart(_ start: Date, duration: TimeInterval) -> Date {
-        max(visible.lowerBound, min(start, visible.upperBound - duration))
+        let latest = max(snapped(visible.upperBound - duration, .down), firstSlot)
+        return max(firstSlot, min(snapped(start), latest))
     }
 
     /// A block's new start after its body is dragged by `delta`.
     public func movedStart(_ start: Date, duration: TimeInterval, by delta: TimeInterval) -> Date {
-        clampedStart(snapped(start + delta), duration: duration)
+        clampedStart(start + delta, duration: duration)
     }
 
     /// A block's new duration after its bottom edge is dragged by `delta`. The end snaps and
     /// stays inside the visible range, but never closer than `minimumDuration` to the start.
     public func resizedDuration(start: Date, duration: TimeInterval, by delta: TimeInterval) -> TimeInterval {
-        let end = min(snapped(start + duration + delta), visible.upperBound)
+        let end = min(snapped(start + duration + delta), lastSlot)
         return max(end.timeIntervalSince(start), minimumDuration)
     }
 
     /// The start for a block dropped with its top at `date`.
     public func droppedStart(at date: Date, duration: TimeInterval) -> Date {
-        clampedStart(snapped(date), duration: duration)
+        clampedStart(date, duration: duration)
     }
 
     /// The block a drag across empty space describes, in either direction.
     public func creationRange(from a: Date, to b: Date) -> Range<Date> {
-        var start = clamped(snapped(min(a, b)))
-        var end = clamped(snapped(max(a, b)))
+        func slot(_ date: Date) -> Date { min(max(snapped(date), firstSlot), lastSlot) }
+        var start = slot(min(a, b))
+        var end = slot(max(a, b))
         if end.timeIntervalSince(start) < minimumDuration {
-            if start + minimumDuration <= visible.upperBound {
+            if start + minimumDuration <= lastSlot {
                 end = start + minimumDuration
             } else {
-                end = visible.upperBound
-                start = end - minimumDuration
+                end = lastSlot
+                start = max(snapped(end - minimumDuration, .down), firstSlot)
             }
         }
         return start..<end
@@ -212,13 +229,22 @@ public struct TimelineLayout: Sendable, Equatable {
 
     // MARK: - Private
 
+    private func snapped(_ date: Date, _ rule: FloatingPointRoundingRule) -> Date {
+        let offset = date.timeIntervalSince(gridOrigin)
+        return gridOrigin + (offset / snap).rounded(rule) * snap
+    }
+
     private static func wallClock(_ day: CivilDay, hour: Int, calendar: Calendar) -> Date {
         var gregorian = Calendar(identifier: .gregorian)
         gregorian.timeZone = calendar.timeZone
         let midnight = day.start(in: calendar)
         guard hour > 0 else { return midnight }
         guard hour < 24 else {
-            return gregorian.date(byAdding: .day, value: 1, to: midnight) ?? midnight + 86_400
+            // The next day's own start, not this one's plus a day: across a gap at midnight this
+            // day may begin at 01:00, and a day added to that lands an hour into the next.
+            let noon = gregorian.date(byAdding: .hour, value: 12, to: midnight) ?? midnight + 12 * 3600
+            let tomorrow = gregorian.date(byAdding: .day, value: 1, to: noon) ?? noon + 86_400
+            return CivilDay(containing: tomorrow, in: gregorian).start(in: gregorian)
         }
         return gregorian.date(bySettingHour: hour, minute: 0, second: 0, of: midnight) ?? midnight + TimeInterval(hour) * 3600
     }

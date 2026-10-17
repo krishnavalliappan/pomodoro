@@ -50,6 +50,25 @@ struct TimelineLayoutTests {
         #expect(springForward.visibleDuration == 23 * 3600)
     }
 
+    /// Chile and Lebanon spring forward at midnight, so the day's first instant is 01:00. The
+    /// range must still end at the next day's midnight, 18 hours after 06:00, not at 01:00.
+    @Test(arguments: [
+        ("America/Santiago", CivilDay(year: 2026, month: 9, day: 6)),
+        ("Asia/Beirut", CivilDay(year: 2026, month: 3, day: 29)),
+    ])
+    func aGapAtMidnightDoesntRunIntoTheNextDay(zone: String, day: CivilDay) {
+        let calendar = Fixture.calendar(zone)
+        #expect(calendar.component(.hour, from: day.start(in: calendar)) == 1, "the zone skips this midnight")
+        let layout = TimelineLayout(day: day, calendar: calendar, hourHeight: 60)
+        let nextMidnight = calendar.date(from: DateComponents(year: day.year, month: day.month, day: day.day + 1))!
+        #expect(layout.visible.upperBound == nextMidnight)
+        #expect(calendar.dateComponents([.day, .hour, .minute], from: layout.visible.upperBound)
+                == DateComponents(day: day.day + 1, hour: 0, minute: 0))
+        #expect(layout.visibleDuration == 18 * 3600)
+        let whole = TimelineLayout(day: day, calendar: calendar, startHour: 0, endHour: 24, hourHeight: 60)
+        #expect(whole.visibleDuration == 23 * 3600)
+    }
+
     // MARK: y ↔ time
 
     @Test func yAndTimeConvert() {
@@ -118,6 +137,84 @@ struct TimelineLayoutTests {
         #expect(layout.droppedStart(at: at(14, 7), duration: 3000) == at(14))
         #expect(layout.droppedStart(at: at(23, 40), duration: 3600) == at(23))
         #expect(layout.droppedStart(at: at(4), duration: 1800) == at(6))
+    }
+
+    /// Clamping to `end - duration` would put a 50-minute block at 23:10; the latest quarter
+    /// hour it fits from is 23:00.
+    @Test func clampingKeepsOddLengthsOnTheGrid() {
+        #expect(layout.droppedStart(at: at(23, 40), duration: minutes(50)) == at(23))
+        #expect(layout.movedStart(at(21), duration: minutes(50), by: minutes(180)) == at(23))
+        #expect(layout.movedStart(at(21), duration: minutes(95), by: minutes(180)) == at(22, 15))
+    }
+
+    // MARK: Grid properties
+
+    /// The default day, a range that neither starts nor ends on a quarter hour, and the day a
+    /// gap at midnight shortens.
+    static let gridLayouts: [TimelineLayout] = {
+        let six = Fixture.date(day: 17, 6)
+        let santiago = Fixture.calendar("America/Santiago")
+        return [
+            TimelineLayout(day: Fixture.day(17), calendar: Fixture.utc, hourHeight: 60),
+            TimelineLayout(visible: six + 7 * 60 ..< Fixture.date(day: 17, 23, 52), hourHeight: 60, gridOrigin: six),
+            TimelineLayout(day: CivilDay(year: 2026, month: 9, day: 6), calendar: santiago, hourHeight: 48),
+        ]
+    }()
+
+    private static let oddDurations: [Double] = [15, 25, 50, 60, 95, 150, 24 * 60]
+
+    private func onWallClockQuarter(_ date: Date, _ layout: TimelineLayout) -> Bool {
+        Int(date.timeIntervalSince(layout.gridOrigin)) % 900 == 0
+    }
+
+    private func inside(_ range: Range<Date>, _ layout: TimelineLayout) -> Bool {
+        layout.visible.lowerBound <= range.lowerBound && range.upperBound <= layout.visible.upperBound
+    }
+
+    @Test(arguments: TimelineLayoutTests.gridLayouts)
+    func movesAndDropsLandOnTheGridInsideTheRange(layout: TimelineLayout) {
+        let span = layout.lastSlot.timeIntervalSince(layout.firstSlot)
+        for length in Self.oddDurations {
+            let duration = minutes(length)
+            for offset in stride(from: -90.0, through: span / 60 + 90, by: 7) {
+                let date = layout.firstSlot + minutes(offset)
+                for start in [layout.droppedStart(at: date, duration: duration),
+                              layout.movedStart(layout.firstSlot, duration: duration, by: minutes(offset))] {
+                    #expect(onWallClockQuarter(start, layout), "\(length) min at \(offset)")
+                    #expect(start >= layout.visible.lowerBound)
+                    if duration <= span {
+                        #expect(inside(start..<start + duration, layout), "\(length) min at \(offset)")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test(arguments: TimelineLayoutTests.gridLayouts)
+    func resizesLandOnTheGridInsideTheRange(layout: TimelineLayout) {
+        let span = layout.lastSlot.timeIntervalSince(layout.firstSlot)
+        for startOffset in stride(from: 0.0, to: span / 60 - 15, by: 45) {
+            let start = layout.firstSlot + minutes(startOffset)
+            for delta in stride(from: -600.0, through: 1200, by: 11) {
+                let end = start + layout.resizedDuration(start: start, duration: 3600, by: minutes(delta))
+                #expect(onWallClockQuarter(end, layout), "from \(startOffset) by \(delta)")
+                #expect(inside(start..<end, layout), "from \(startOffset) by \(delta)")
+                #expect(end.timeIntervalSince(start) >= layout.minimumDuration)
+            }
+        }
+    }
+
+    @Test(arguments: TimelineLayoutTests.gridLayouts)
+    func creationsLandOnTheGridInsideTheRange(layout: TimelineLayout) {
+        let span = layout.visibleDuration / 60
+        for a in stride(from: -60.0, through: span + 60, by: 13) {
+            for b in stride(from: -60.0, through: span + 60, by: 29) {
+                let range = layout.creationRange(from: layout.visible.lowerBound + minutes(a), to: layout.visible.lowerBound + minutes(b))
+                #expect(onWallClockQuarter(range.lowerBound, layout) && onWallClockQuarter(range.upperBound, layout), "\(a)→\(b)")
+                #expect(inside(range, layout), "\(a)→\(b)")
+                #expect(range.upperBound.timeIntervalSince(range.lowerBound) >= layout.minimumDuration)
+            }
+        }
     }
 
     // MARK: Resizing

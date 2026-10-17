@@ -33,13 +33,20 @@ public struct TimeBlockRepository: Sendable {
 
     @discardableResult
     public func move(id: UUID, to start: Date) throws -> TimeBlock {
-        try modify(id: id) { $0.start = start }
+        try edit(id: id, TimeBlockEdit(start: start))
     }
 
     @discardableResult
     public func resize(id: UUID, duration: TimeInterval) throws -> TimeBlock {
-        try Self.validate(duration: duration)
-        return try modify(id: id) { $0.duration = duration }
+        try edit(id: id, TimeBlockEdit(duration: duration))
+    }
+
+    /// Applies only `edit`'s fields to the row as it is inside the write, so changes committed
+    /// since the caller last read it survive.
+    @discardableResult
+    public func edit(id: UUID, _ edit: TimeBlockEdit) throws -> TimeBlock {
+        if let duration = edit.duration { try Self.validate(duration: duration) }
+        return try modify(id: id) { $0 = edit.applied(to: $0) }
     }
 
     /// Blocks that overlap `range` at all, ordered by start. An empty range matches nothing.
@@ -55,6 +62,13 @@ public struct TimeBlockRepository: Sendable {
     /// overlap, the one that started most recently wins; equal starts tie-break by ID.
     public func block(at date: Date) throws -> TimeBlock? {
         try writer.read { db in try Self.containing(date).fetchOne(db) }
+    }
+
+    /// The first block start or end after `date` on its day, when what's scheduled now changes.
+    public func nextBoundary(after date: Date) throws -> Date? {
+        let day = database.dayRange(containing: date)
+        let blocks = try blocks(in: date..<day.upperBound)
+        return blocks.flatMap { [$0.start, $0.end] }.filter { $0 > date && $0 <= day.upperBound }.min()
     }
 
     public func observe(in range: Range<Date>) -> AsyncStream<[TimeBlock]> {
