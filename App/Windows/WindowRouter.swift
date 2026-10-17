@@ -33,10 +33,10 @@ final class WindowRouter {
         let window: NSWindow
         switch destination {
         case .planner:
-            window = NSWindow(contentViewController: NSHostingController(rootView: PlannerView(model: model)))
+            window = NSWindow(contentViewController: NSHostingController(rootView: PlannerWindow(model: model)))
             window.title = "Planner"
             window.styleMask.insert(.resizable)
-            window.setContentSize(PlannerView.size)
+            window.setContentSize(PlannerWindow.size)
         case .settings:
             window = SettingsWindow.make(model: model, launchAtLogin: launchAtLogin)
         }

@@ -167,7 +167,7 @@ struct PopoverTaskSection: View, Equatable {
             QuickAddField(
                 model: model,
                 text: quickAddText,
-                idleLine: AnyView(TodayRow(completed: model.completedToday, cycle: model.longBreakEvery)),
+                idleLine: AnyView(TodayRow(summary: model.today, cycle: model.longBreakEvery)),
                 isEditing: isEditing,
                 takesFocusRequests: true
             )

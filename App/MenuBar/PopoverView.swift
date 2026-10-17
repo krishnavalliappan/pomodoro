@@ -495,11 +495,15 @@ struct Chip: View {
     }
 }
 
+/// "Today", its dots, focus time, count and streak on one line. When it's too narrow the dots go,
+/// then the text shortens; the label always stays, so the row never wraps or grows taller.
 struct TodayRow: View {
     static let maxDots = 12
 
-    var completed: Int
+    var summary: TodaySummary
     var cycle: Int
+
+    private var completed: Int { summary.completedPomodoros }
 
     /// Whole cycles, so the empty dots show how far the current one has to go.
     private var dotCount: Int {
@@ -508,9 +512,36 @@ struct TodayRow: View {
     }
 
     var body: some View {
+        // The same order in every phase, so one width always gives one form.
+        ViewThatFits(in: .horizontal) {
+            line(showsDots: true, isLong: true)
+            line(showsDots: false, isLong: true)
+            line(showsDots: false, isLong: false)
+        }
+        .font(.callout)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.accessibilityText(summary))
+    }
+
+    private func line(showsDots: Bool, isLong: Bool) -> some View {
         HStack(spacing: 8) {
             Text("Today")
                 .foregroundStyle(.secondary)
+                .fixedSize()
+            if showsDots {
+                dots
+            }
+            Spacer(minLength: 8)
+            Text(Self.text(summary, isLong: isLong))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
+    private var dots: some View {
+        HStack(spacing: 5) {
             HStack(spacing: 5) {
                 ForEach(0..<dotCount, id: \.self) { index in
                     Circle()
@@ -521,13 +552,29 @@ struct TodayRow: View {
             if completed > Self.maxDots {
                 Text("+\(completed - Self.maxDots)")
                     .foregroundStyle(.secondary)
+                    .fixedSize()
             }
-            Spacer(minLength: 0)
-            Text(completed == 1 ? "1 pomodoro" : "\(completed) pomodoros")
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
         }
-        .font(.callout)
-        .accessibilityElement(children: .combine)
+    }
+
+    /// "1h 40m · 4 🍅 · 🔥 6-day streak", or "1h 40m · 4 🍅 · 🔥 6d" when short.
+    static func text(_ summary: TodaySummary, isLong: Bool = true) -> String {
+        let hasFocus = summary.focusedSeconds > 0 || summary.completedPomodoros > 0
+        var parts: [String] =
+            hasFocus
+            ? [Stats.durationText(summary.focusedSeconds), "\(summary.completedPomodoros) 🍅"]
+            : [isLong ? "No focus yet" : "0m"]
+        let streak = summary.streak.current
+        if streak > 0 {
+            parts.append(isLong ? "🔥 \(streak)-day streak" : "🔥 \(streak)d")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    static func accessibilityText(_ summary: TodaySummary) -> String {
+        let count = summary.completedPomodoros
+        var text = "Today: \(Stats.durationText(summary.focusedSeconds)) of focus, \(count == 1 ? "1 pomodoro" : "\(count) pomodoros")"
+        if summary.streak.current > 0 { text += ", \(summary.streak.current)-day streak" }
+        return text
     }
 }

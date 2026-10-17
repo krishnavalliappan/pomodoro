@@ -30,7 +30,9 @@ final class AppModel {
     /// apply for this run; Settings shows this so they aren't silently lost on quit.
     private(set) var settingsSaveError: SettingsStoreError? = nil
     private(set) var planner = SessionPlanner()
-    private(set) var completedToday = 0
+    /// Today's focus and the streak, for the popover. Refreshed when a session is logged, the
+    /// popover opens or the day changes; never by the 1 Hz tick.
+    private(set) var today: TodaySummary
     private(set) var isPopoverVisible = false
     /// Bumped as now crosses a block's start or end, so what reads the clock to find the block
     /// scheduled now (the running highlight) catches up without a database change.
@@ -102,11 +104,12 @@ final class AppModel {
         self.phase = engine.phase
         self.tasks = TaskStore(database: database, clock: clock)
         self.selectedTaskID = engine.taskID
+        self.today = TodaySummary(day: database.day(containing: clock.now))
         tasks.ensureLoaded(engine.taskID)
         sound.settings = settings.sounds
         // Every focus picks its profile here, including one auto-started inside a catch-up.
         engine.configurationForFocus = { [weak self] in self?.configurationForFocus() }
-        refreshCompletedToday()
+        refreshToday()
         // A session restored from disk may have ended while the app wasn't running.
         reconcile()
     }
@@ -154,6 +157,8 @@ final class AppModel {
     }
 
     var longBreakEvery: Int { settings.defaultProfile.longBreakEvery }
+
+    var completedToday: Int { today.completedPomodoros }
 
     var isRefreshingEverySecond: Bool { refreshTimer != nil }
 
@@ -255,7 +260,7 @@ final class AppModel {
 
     func dayMayHaveChanged(_ reason: DayChangeMonitor.Reason) {
         tasks.rollOverIfNeeded(force: reason == .timeZoneChanged)
-        refreshCompletedToday()
+        refreshToday()
         if isPopoverVisible { tasks.refreshSuggestion() }
         scheduleBlockBoundary()
     }
@@ -371,7 +376,7 @@ final class AppModel {
         if !visible { quickAddFocusTaken() }
         if visible {
             refreshSnapshot()
-            refreshCompletedToday()
+            refreshToday()
             tasks.refreshSuggestion()
         }
         scheduleRefresh()
@@ -424,7 +429,7 @@ final class AppModel {
         } catch {
             Self.log.error("logging a focus session failed: \(String(describing: error), privacy: .public)")
         }
-        refreshCompletedToday()
+        refreshToday()
     }
 
     private func setSelectedTask(_ taskID: UUID?) {
@@ -474,9 +479,10 @@ final class AppModel {
         if prompt != self.prompt { self.prompt = prompt }
     }
 
-    private func refreshCompletedToday() {
+    private func refreshToday() {
         do {
-            completedToday = try database.sessions.total(onDayContaining: clock.now).completedPomodoros
+            let today = try database.stats.todaySummary(now: clock.now)
+            if today != self.today { self.today = today }
         } catch {
             Self.log.error("reading today's sessions failed: \(String(describing: error), privacy: .public)")
         }
