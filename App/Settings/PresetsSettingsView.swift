@@ -27,7 +27,7 @@ struct PresetsSettingsView: View {
                         model.updateSettings { $0.movePreset(fromOffset: from, toOffset: destination) }
                     }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+                .listStyle(.inset)
                 .contextMenu(forSelectionType: Preset.ID.self) { ids in
                     if let id = ids.first {
                         Button("Edit…") { edit(id) }
@@ -212,6 +212,7 @@ struct PresetEditor: View {
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: Self.size.width, height: Self.size.height)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func minutes(_ keyPath: WritableKeyPath<TimerProfile, TimeInterval>) -> Binding<Int> {

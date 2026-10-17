@@ -6,6 +6,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case timer, presets, sounds, menuBar, shortcuts, general
 
     static let width: CGFloat = 460
+    /// Extra height while the save-error banner shows, so it never pushes a pane's content out.
+    static let bannerHeight: CGFloat = 80
 
     var id: Self { self }
 
@@ -34,12 +36,12 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var size: CGSize {
         let height: CGFloat =
             switch self {
-            case .timer: 590
+            case .timer: 550
             case .presets: 330
             case .sounds: 300
             case .menuBar: 170
             case .shortcuts: 240
-            case .general: 260
+            case .general: 210
             }
         return CGSize(width: Self.width, height: height)
     }
@@ -57,8 +59,12 @@ struct SettingsPaneView: View {
             content
                 .frame(maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: pane.size.width, height: pane.size.height)
+        .frame(width: pane.size.width, height: height)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var height: CGFloat {
+        pane.size.height + (model.settingsSaveError == nil ? 0 : SettingsPane.bannerHeight)
     }
 
     @ViewBuilder

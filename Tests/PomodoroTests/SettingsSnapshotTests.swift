@@ -50,7 +50,7 @@ final class SettingsSnapshotTests: XCTestCase {
             sound: SoundService(players: [:]), scheduler: h.scheduler)
         model.updateSettings { $0.menuBarDisplay = .timeAndTask }
         XCTAssertNotNil(model.settingsSaveError)
-        assertPane(.menuBar, model: model, variant: "menuBar-saveError")
+        assertPane(.menuBar, model: model, variant: "menuBar-saveError", extraHeight: SettingsPane.bannerHeight)
     }
 
     func testPresetEditor() {
@@ -69,12 +69,13 @@ final class SettingsSnapshotTests: XCTestCase {
         model: AppModel,
         login: FakeLoginItem = FakeLoginItem(),
         variant: String? = nil,
+        extraHeight: CGFloat = 0,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         Snapshot.assertLightAndDark(
             SettingsPaneView(pane: pane, model: model, launchAtLogin: LaunchAtLogin(service: login, model: model)),
-            size: pane.size,
+            size: CGSize(width: pane.size.width, height: pane.size.height + extraHeight),
             name: "SettingsView",
             variant: variant ?? pane.rawValue,
             inWindow: pane == .presets,
