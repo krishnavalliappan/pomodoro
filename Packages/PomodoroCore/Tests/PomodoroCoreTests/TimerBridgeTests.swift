@@ -22,7 +22,8 @@ struct TimerBridgeTests {
     @Test func overriddenProfileReachesTheEngine() throws {
         var planner = SessionPlanner()
         planner.setOverride(SessionOverride(parsing: "40/8"))
-        let configuration = TimerConfiguration(profile: try #require(planner.consumeProfile(in: .default)))
+        let consumed = planner.consumeProfile(in: .default)
+        let configuration = TimerConfiguration(profile: try #require(consumed))
         #expect(configuration.focusDuration == 40 * 60)
         #expect(configuration.shortBreakDuration == 8 * 60)
         #expect(configuration.longBreakDuration == 8 * 60)

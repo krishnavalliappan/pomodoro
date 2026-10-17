@@ -56,7 +56,8 @@ struct SessionOverrideTests {
         #expect(first?.focusDuration == 50 * 60)
         #expect(planner.pendingOverride == nil)
 
-        #expect(planner.consumeProfile(in: .default) == nil, "the next focus is back on the default")
+        let consumed = planner.consumeProfile(in: .default)
+        #expect(consumed == nil, "the next focus is back on the default")
     }
 
     @Test func emptyOverrideIsIgnored() {
@@ -68,7 +69,8 @@ struct SessionOverrideTests {
     @Test func clearOverrideDropsIt() {
         var planner = SessionPlanner(pendingOverride: SessionOverride(focus: 30 * 60))
         planner.clear()
-        #expect(planner.consumeProfile(in: .default) == nil)
+        let consumed = planner.consumeProfile(in: .default)
+        #expect(consumed == nil)
     }
 
     @Test func overrideNeverMutatesOrPersistsDefaults() throws {
@@ -91,14 +93,16 @@ struct SessionOverrideTests {
         #expect(planner.pendingPresetID == Preset.deep.id)
         #expect(planner.pendingOverride == nil)
         #expect(planner.previewProfile(in: .default) == .deep)
-        #expect(planner.consumeProfile(in: .default) == .deep)
+        let consumed = planner.consumeProfile(in: .default)
+        #expect(consumed == .deep)
         #expect(planner.pending == nil)
     }
 
     @Test func deletedPresetFallsBackToTheDefault() {
         var planner = SessionPlanner(pending: .preset(UUID()))
         #expect(planner.previewProfile(in: .default) == .classic)
-        #expect(planner.consumeProfile(in: .default) == nil)
+        let consumed = planner.consumeProfile(in: .default)
+        #expect(consumed == nil)
     }
 
     @Test func customOneOffLayersOnTheCurrentDefault() throws {
