@@ -25,27 +25,21 @@ struct PopoverView: View {
     let model: AppModel
     let navigation: PopoverNavigation
     var actions = PopoverActions()
-    /// Pre-filled quick-add text, for snapshots of the preview.
-    var quickAddText = ""
-
-    /// Space types into the quick-add field rather than toggling the timer.
-    @State private var isEditingTask = false
-
-    init(model: AppModel, navigation: PopoverNavigation, actions: PopoverActions = PopoverActions(), quickAddText: String = "") {
-        self.model = model
-        self.navigation = navigation
-        self.actions = actions
-        self.quickAddText = quickAddText
-    }
 
     var body: some View {
+        @Bindable var navigation = navigation
         VStack(spacing: 0) {
             Group {
                 switch navigation.tab {
                 case .timer:
                     PopoverTimerTab(model: model)
                 case .tasks:
-                    PopoverTasksTab(model: model, openPlanner: actions.openPlanner, quickAddText: quickAddText, isEditing: $isEditingTask)
+                    PopoverTasksTab(
+                        model: model,
+                        openPlanner: actions.openPlanner,
+                        draft: $navigation.quickAddDraft,
+                        isEditing: $navigation.isEditingTask
+                    )
                 case .sounds:
                     PopoverSoundsTab()
                 case .stats:
@@ -55,7 +49,7 @@ struct PopoverView: View {
             .padding(.horizontal, 18)
             .padding(.top, 16)
             .padding(.bottom, 12)
-            PopoverTabBar(navigation: navigation, openSettings: actions.openSettings, quit: actions.quit)
+            PopoverTabBar(navigation: navigation, actions: actions)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
         }
@@ -70,7 +64,7 @@ struct PopoverView: View {
         ZStack {
             Button("Start or pause", action: model.toggle)
                 .keyboardShortcut(.space, modifiers: [])
-                .disabled(isEditingTask)
+                .disabled(!navigation.spaceTogglesTimer)
             Button("Stop", action: model.stopAndLog)
                 .keyboardShortcut(".", modifiers: .command)
             Button("Settings", action: actions.openSettings)
@@ -93,8 +87,7 @@ struct PopoverView: View {
 
 struct PopoverTabBar: View {
     var navigation: PopoverNavigation
-    var openSettings: @MainActor () -> Void
-    var quit: @MainActor () -> Void
+    var actions: PopoverActions
 
     var body: some View {
         HStack(spacing: 0) {
@@ -111,19 +104,79 @@ struct PopoverTabBar: View {
                 .accessibilityLabel(tab.title)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
-            Button(action: openSettings) {
+            // With no Dock icon or menu bar, this menu is the only visible way to quit.
+            Button {
+                gearAnchor.popUp(PopoverGearMenu.make(actions))
+            } label: {
                 TabIcon(symbol: "gearshape.fill", isSelected: false)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
-            .help("Settings (⌘,)")
-            .accessibilityLabel("Settings")
-            // The popover has no menu bar of its own, so Quit lives here as well as on ⌘Q.
-            .contextMenu {
-                Button("Quit Pomodoro", action: quit)
-            }
+            .background(MenuAnchorView(anchor: gearAnchor))
+            .help("Settings and Quit")
+            .accessibilityLabel("Settings and Quit")
         }
         .frame(height: 36)
+    }
+
+    @State private var gearAnchor = MenuAnchor()
+}
+
+/// The ⚙ menu. An `NSMenu` rather than a SwiftUI `Menu`, which would restyle the tab icon as a
+/// pop-up button; built apart from the view so tests can check its items.
+enum PopoverGearMenu {
+    @MainActor
+    static func make(_ actions: PopoverActions) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(ClosureMenuItem("Settings…", key: ",", action: actions.openSettings))
+        menu.addItem(.separator())
+        menu.addItem(ClosureMenuItem("Quit Pomodoro", key: "q", action: actions.quit))
+        return menu
+    }
+}
+
+final class ClosureMenuItem: NSMenuItem {
+    private let handler: @MainActor () -> Void
+
+    init(_ title: String, key: String, action handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(fire), keyEquivalent: key)
+        keyEquivalentModifierMask = .command
+        target = self
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    @objc private func fire() {
+        handler()
+    }
+}
+
+/// Where the ⚙ menu drops from: just below the button's own AppKit view.
+@MainActor
+final class MenuAnchor {
+    weak var view: NSView?
+
+    func popUp(_ menu: NSMenu) {
+        guard let view else { return }
+        let below = NSPoint(x: 0, y: view.isFlipped ? view.bounds.maxY + 4 : -4)
+        menu.popUp(positioning: nil, at: below, in: view)
+    }
+}
+
+private struct MenuAnchorView: NSViewRepresentable {
+    let anchor: MenuAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        anchor.view = nsView
     }
 }
 

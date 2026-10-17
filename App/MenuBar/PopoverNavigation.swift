@@ -36,6 +36,13 @@ final class PopoverNavigation {
     static let tabKey = "popover.tab"
 
     private(set) var tab: PopoverTab
+    /// The quick-add text, kept here so it survives the Tasks tab being torn down by a tab switch.
+    var quickAddDraft = ""
+    /// Whether the quick-add field has focus, so Space types instead of toggling the timer.
+    var isEditingTask = false
+
+    /// Space starts or pauses unless it's typing into the quick-add field.
+    var spaceTogglesTimer: Bool { !(isEditingTask && tab == .tasks) }
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -47,6 +54,8 @@ final class PopoverNavigation {
     func select(_ tab: PopoverTab) {
         guard tab != self.tab else { return }
         self.tab = tab
+        // The field leaves with its tab and may not report losing focus on the way out.
+        if tab != .tasks { isEditingTask = false }
         defaults.set(tab.rawValue, forKey: Self.tabKey)
     }
 

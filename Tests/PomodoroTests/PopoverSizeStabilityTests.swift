@@ -21,9 +21,52 @@ final class PopoverSizeStabilityTests: XCTestCase {
         try assertStableSize(.stats) { try $0.seedStats() }
     }
 
+    func testSoundsSizeIsStable() throws {
+        try assertStableSize(.sounds) { _ in }
+    }
+
+    func testOverrideSizeIsStable() throws {
+        try assertStableSize(.timer, seed: { _ in }, prepare: { _, model in XCTAssertTrue(model.applyOverride("50/10")) })
+    }
+
+    func testDecisionCardSizeIsStable() throws {
+        try assertStableSize(.timer, seed: { _ in }, prepare: { h, model in
+            model.startFocus()
+            h.scheduler.advance(by: 25 * 60 + 135)
+            XCTAssertEqual(model.prompt, .focusEnded)
+        })
+    }
+
+    /// One hosted popover, tabs switched back and forth: the width never moves, and each tab
+    /// comes back at the whole-point size it first had.
+    func testSwitchingTabsInOnePopoverKeepsEachTabsSize() throws {
+        let h = try ModelHarness(display: .time)
+        try h.seedCompletedSessions(2)
+        try h.seedTasks()
+        try h.seedStats()
+        let model = h.makeModel()
+        model.setPopoverVisible(true)
+        let navigation = PopoverNavigation(defaults: PopoverViewSnapshotTests.freshDefaults())
+        let host = NSHostingView(rootView: PopoverView(model: model, navigation: navigation, actions: PopoverActions(quit: {})))
+        host.appearance = NSAppearance(named: .aqua)
+
+        var first: [PopoverTab: CGSize] = [:]
+        for _ in 0..<3 {
+            for tab in PopoverTab.allCases {
+                navigation.select(tab)
+                host.layoutSubtreeIfNeeded()
+                let size = host.fittingSize
+                XCTAssertEqual(size.width, PopoverView.width, "\(tab)")
+                XCTAssertEqual(PopoverView.integralSize(size), PopoverView.integralSize(first[tab] ?? size), "\(tab)")
+                first[tab] = first[tab] ?? size
+            }
+        }
+    }
+
     private func assertStableSize(
         _ tab: PopoverTab,
         seed: (ModelHarness) throws -> Void,
+        prepare: (ModelHarness, AppModel) -> Void = { _, _ in },
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
@@ -33,6 +76,7 @@ final class PopoverSizeStabilityTests: XCTestCase {
             try h.seedCompletedSessions(2)
             try seed(h)
             let model = h.makeModel()
+            prepare(h, model)
             model.setPopoverVisible(true)
             let navigation = PopoverNavigation(defaults: PopoverViewSnapshotTests.freshDefaults())
             navigation.select(tab)

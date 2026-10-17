@@ -203,7 +203,8 @@ final class PopoverViewSnapshotTests: XCTestCase {
         model.setPopoverVisible(true)
         let navigation = PopoverNavigation(defaults: Self.freshDefaults())
         navigation.select(tab)
-        let view = PopoverView(model: model, navigation: navigation, actions: PopoverActions(quit: {}), quickAddText: quickAddText)
+        navigation.quickAddDraft = quickAddText
+        let view = PopoverView(model: model, navigation: navigation, actions: PopoverActions(quit: {}))
         // No size: the popover takes the view's own height, as `sizingOptions` makes it do in the app.
         Snapshot.assertLightAndDark(
             view,

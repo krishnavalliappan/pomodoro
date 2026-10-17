@@ -19,7 +19,7 @@ struct PopoverSoundsTab: View {
             VStack(spacing: 4) {
                 Text("Ambient sounds")
                     .font(.headline)
-                Text("Coming soon: background sounds to focus to.")
+                Text("Coming soon: ambient sounds to help you focus.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

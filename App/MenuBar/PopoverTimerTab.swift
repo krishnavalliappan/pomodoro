@@ -537,7 +537,8 @@ struct Chip: View {
             .frame(height: Self.height)
             .foregroundStyle(isSelected ? tint : .primary)
             .background(Capsule().fill(isSelected ? AnyShapeStyle(tint.opacity(0.16)) : AnyShapeStyle(PopoverStyle.surface)))
-            .overlay(Capsule().strokeBorder(tint.opacity(0.6), lineWidth: emphasis == .outlined ? 1 : 0))
+            // A neutral hairline, so beside a pending one-off's tinted fill it doesn't read as a second selection.
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.28), lineWidth: emphasis == .outlined ? 1 : 0))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

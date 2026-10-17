@@ -11,8 +11,8 @@ struct PopoverTasksTab: View {
 
     var model: AppModel
     var openPlanner: @MainActor () -> Void
-    var quickAddText = ""
-    var isEditing: Binding<Bool>?
+    var draft: Binding<String>
+    var isEditing: Binding<Bool>
 
     private var rows: [TaskItem] { model.tasks.todayByStatus }
 
@@ -26,7 +26,7 @@ struct PopoverTasksTab: View {
             header
             QuickAddField(
                 model: model,
-                text: quickAddText,
+                draft: draft,
                 idleLine: AnyView(hint),
                 isEditing: isEditing,
                 takesFocusRequests: true
@@ -62,7 +62,7 @@ struct PopoverTasksTab: View {
     private var hint: some View {
         Text("Return adds it to today")
             .font(.caption)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(.secondary)
             .lineLimit(1)
             .frame(height: 16)
             .padding(.leading, 8)
