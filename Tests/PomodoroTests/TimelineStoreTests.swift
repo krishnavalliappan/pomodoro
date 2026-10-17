@@ -1,3 +1,4 @@
+import Observation
 import PomodoroCore
 import XCTest
 @testable import Pomodoro
@@ -59,12 +60,15 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(store.dropTask(task.id, at: at(9))?.duration, 30 * 60)
     }
 
-    func testADropNearMidnightStaysOnTheTimeline() throws {
+    /// 50 minutes can't end at midnight from a quarter hour; it starts at 23:00, not 23:10.
+    func testADropNearMidnightStaysOnTheTimelineAndTheGrid() throws {
         let h = try ModelHarness()
         let task = try makeTask(h, estimate: 2)
         let store = TimelineStore(model: h.makeModel())
         let block = try XCTUnwrap(store.dropTask(task.id, at: at(23, 40)))
-        XCTAssertEqual(block.end, at(0) + 86_400)
+        XCTAssertEqual(block.start, at(23))
+        XCTAssertEqual(block.end, at(23, 50))
+        XCTAssertLessThanOrEqual(block.end, at(0) + 86_400)
     }
 
     func testDroppingAnUnknownTaskDoesNothing() throws {
@@ -206,6 +210,57 @@ final class TimelineStoreTests: XCTestCase {
 
     // MARK: Editing
 
+    /// The editor holds the row as it was when the rename began; saving must not put back the
+    /// start, length or colour it held then.
+    func testSavingARenameKeepsAMoveResizeAndColourMadeMeanwhile() throws {
+        let h = try ModelHarness()
+        let original = try addBlock(h, "Untitled", at: at(10))
+        let store = TimelineStore(model: h.makeModel())
+
+        store.beginRename(original.id)
+        store.editorTitle = "Planning"
+        store.dragMove(original.id, by: 3600)
+        store.endDrag()
+        store.dragResize(original.id, by: 30 * 60)
+        store.endDrag()
+        store.setColor(original.id, "purple")
+        XCTAssertEqual(store.editorBlock?.start, at(11), "the editor follows the move")
+        store.commitEditor()
+
+        let block = try XCTUnwrap(try saved(h).first)
+        XCTAssertEqual(block.title, "Planning")
+        XCTAssertEqual(block.start, at(11))
+        XCTAssertEqual(block.duration, 90 * 60)
+        XCTAssertEqual(block.color, "purple")
+        XCTAssertEqual(store.blocks, [block])
+    }
+
+    func testSavingARenameKeepsALinkMadeMeanwhile() throws {
+        let h = try ModelHarness()
+        let task = try makeTask(h)
+        let original = try addBlock(h, "Untitled", at: at(10))
+        let model = h.makeModel()
+        model.tasks.ensureLoaded(task.id)
+        let store = TimelineStore(model: model)
+
+        store.beginRename(original.id)
+        store.editorTitle = "Planning"
+        store.link(original.id, to: task.id)
+        store.commitEditor()
+        XCTAssertEqual(try saved(h).map(\.taskID), [task.id], "the editor didn't touch the task")
+        XCTAssertEqual(try saved(h).map(\.title), ["Planning"])
+    }
+
+    func testAnUnchangedRenameWritesNothing() throws {
+        let h = try ModelHarness()
+        let original = try addBlock(h, "Planning", at: at(10))
+        let store = TimelineStore(model: h.makeModel())
+        store.beginRename(original.id)
+        store.editorTitle = " Planning "
+        store.commitEditor()
+        XCTAssertEqual(store.writeCount, 0)
+    }
+
     func testRenameLinkUnlinkAndColor() throws {
         let h = try ModelHarness()
         let task = try makeTask(h)
@@ -268,16 +323,75 @@ final class TimelineStoreTests: XCTestCase {
     func testPlayOnAnUnlinkedBlockFocusesWithoutATask() throws {
         let h = try ModelHarness()
         let other = try makeTask(h)
-        let block = try addBlock(h, "Inbox triage", at: at(11))
+        let now = try addBlock(h, "Inbox triage", at: at(8, 30))
+        let later = try addBlock(h, "Email", at: at(11))
         let model = h.makeModel()
         model.selectTask(other.id)
         let store = TimelineStore(model: model)
 
-        store.startFocus(on: block.id)
+        store.startFocus(on: later.id)
         XCTAssertEqual(model.phase, .focus)
         XCTAssertNil(model.selectedTaskID)
         XCTAssertNil(model.snapshot.taskID)
-        XCTAssertTrue(store.isRunning(block), "highlighted although it isn't scheduled now")
+        XCTAssertTrue(store.isRunning(now), "the unlinked block scheduled now")
+        XCTAssertFalse(store.isRunning(later), "not scheduled now")
+    }
+
+    /// Starting block A's task, then another task from the sidebar, must not leave A running;
+    /// nor may a stop and a later focus on something else bring it back.
+    func testRunningFollowsTheEngineAcrossTaskSwitchesAndStops() throws {
+        let h = try ModelHarness()
+        let a = try makeTask(h, "Task A")
+        let b = try makeTask(h, "Task B")
+        let blockA = try addBlock(h, "A", at: at(8, 30), taskID: a.id)
+        let unlinked = try addBlock(h, "Unlinked", at: at(8, 45))
+        let model = h.makeModel()
+        let store = TimelineStore(model: model)
+
+        store.startFocus(on: blockA.id)
+        XCTAssertTrue(store.isRunning(blockA))
+        XCTAssertFalse(store.isRunning(unlinked))
+
+        model.selectTask(b.id)
+        XCTAssertFalse(store.isRunning(blockA), "the focus now counts toward B")
+
+        model.selectTask(nil)
+        XCTAssertTrue(store.isRunning(unlinked), "a focus without a task runs the unlinked block")
+        XCTAssertFalse(store.isRunning(blockA))
+
+        model.stopAndLog()
+        XCTAssertFalse(store.isRunning(unlinked))
+        XCTAssertFalse(store.isRunning(blockA))
+
+        model.selectTask(b.id)
+        model.startFocus()
+        XCTAssertFalse(store.isRunning(blockA), "a later focus on B doesn't revive A")
+
+        model.stopAndLog()
+        model.startFocus(on: a.id)
+        XCTAssertTrue(store.isRunning(blockA))
+    }
+
+    func testRunningEndsWhenTheBlockDoesOrMovesAway() throws {
+        let h = try ModelHarness()
+        let task = try makeTask(h)
+        let block = try addBlock(h, at: at(8, 15), taskID: task.id)
+        let model = h.makeModel()
+        let store = TimelineStore(model: model)
+        model.startFocus(on: task.id)
+        XCTAssertTrue(store.isRunning(block))
+
+        store.dragMove(block.id, by: 2 * 3600)
+        store.endDrag()
+        XCTAssertFalse(store.isRunning(try XCTUnwrap(store.blocks.first)), "moved out of now")
+        store.dragMove(block.id, by: -2 * 3600)
+        store.endDrag()
+        XCTAssertTrue(store.isRunning(try XCTUnwrap(store.blocks.first)))
+
+        // The focus runs on, past the block's 09:15 end.
+        h.scheduler.advance(by: 20 * 60)
+        XCTAssertEqual(model.phase, .focus)
+        XCTAssertFalse(store.isRunning(try XCTUnwrap(store.blocks.first)))
     }
 
     func testTheBlockScheduledNowRunsDuringAFocusOnItsTask() throws {
@@ -313,6 +427,174 @@ final class TimelineStoreTests: XCTestCase {
         try await waitUntil { model.tasks.suggestedTaskID == nil }
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(store.blocks.map(\.start), [at(11, 45)], "the observation agrees")
+        XCTAssertEqual(store.writeCount, 1)
+    }
+
+    // MARK: Writes against newer state
+
+    /// A move, then the linked task deleted elsewhere before the observation catches up: the
+    /// timeline must show the unlink, not hold the moved block's old link forever.
+    func testAWriteDoesntHideAnUnlinkFromElsewhere() async throws {
+        let h = try ModelHarness()
+        let task = try makeTask(h)
+        let block = try addBlock(h, at: at(10), taskID: task.id)
+        let store = TimelineStore(model: h.makeModel())
+        let observing = Task { await store.observe() }
+        defer { observing.cancel() }
+
+        store.dragMove(block.id, by: 3600)
+        store.endDrag()
+        XCTAssertTrue(try h.database.tasks.delete(id: task.id))
+        try await waitUntil { store.blocks.map(\.taskID) == [nil] }
+        XCTAssertEqual(store.blocks.map(\.start), [at(11)])
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(store.blocks.map(\.taskID), [nil], "and it stays unlinked")
+    }
+
+    func testAWriteDoesntLeaveAGhostOfABlockDeletedElsewhere() async throws {
+        let h = try ModelHarness()
+        let block = try addBlock(h, at: at(10))
+        let store = TimelineStore(model: h.makeModel())
+        let observing = Task { await store.observe() }
+        defer { observing.cancel() }
+
+        store.setColor(block.id, "teal")
+        XCTAssertTrue(try h.database.blocks.delete(id: block.id))
+        try await waitUntil { store.blocks.isEmpty }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(store.blocks, [])
+    }
+
+    /// A value the observation fetched before a write must not put the old block back; one from
+    /// a subscription that began after it is current, whatever it says.
+    func testValuesFetchedBeforeAWriteAreDropped() throws {
+        let h = try ModelHarness()
+        let original = try addBlock(h, at: at(10))
+        let store = TimelineStore(model: h.makeModel())
+        let before = store.writeGeneration
+
+        store.dragMove(original.id, by: 3600)
+        store.endDrag()
+        XCTAssertFalse(store.receive([original], subscribedAt: before))
+        XCTAssertEqual(store.blocks.map(\.start), [at(11)])
+
+        var elsewhere = try XCTUnwrap(try saved(h).first)
+        elsewhere.start = at(14)
+        XCTAssertTrue(store.receive([elsewhere], subscribedAt: store.writeGeneration))
+        XCTAssertEqual(store.blocks, [elsewhere], "newer state from elsewhere wins")
+    }
+
+    /// The block was deleted behind the store's back; the move fails, and the timeline shows
+    /// what's saved instead of the move.
+    func testAFailedMoveShowsWhatIsSaved() throws {
+        let h = try ModelHarness()
+        let doomed = try addBlock(h, at: at(10))
+        let kept = try addBlock(h, at: at(13))
+        let store = TimelineStore(model: h.makeModel())
+        try h.database.blocks.delete(id: doomed.id)
+        let generation = store.writeGeneration
+
+        store.dragMove(doomed.id, by: 3600)
+        store.endDrag()
+        XCTAssertEqual(store.writeCount, 1)
+        XCTAssertEqual(store.writeGeneration, generation, "a failed write fences nothing")
+        XCTAssertEqual(try saved(h), [kept])
+        XCTAssertEqual(store.blocks, [kept])
+        XCTAssertNil(store.selectedBlockID)
+    }
+
+    func testAFailedRenameShowsWhatIsSaved() throws {
+        let h = try ModelHarness()
+        let doomed = try addBlock(h, "Untitled", at: at(10))
+        let store = TimelineStore(model: h.makeModel())
+        store.beginRename(doomed.id)
+        store.editorTitle = "Planning"
+        try h.database.blocks.delete(id: doomed.id)
+        store.commitEditor()
+        XCTAssertEqual(store.writeCount, 1)
+        XCTAssertEqual(store.blocks, [])
+        XCTAssertEqual(try saved(h), [])
+    }
+
+    // MARK: Boundaries
+
+    /// Open at 08:59 with a 09:00 block: crossing 09:00 must suggest its task, and crossing its
+    /// end must drop it, with no write and no reopening.
+    func testTheSuggestionFollowsBlockBoundariesWhileThePopoverIsOpen() throws {
+        let h = try ModelHarness()
+        h.clock.now = at(8, 59)
+        let task = try makeTask(h)
+        try addBlock(h, at: at(9), taskID: task.id)
+        let model = h.makeModel()
+        model.setPopoverVisible(true)
+        XCTAssertNil(model.tasks.suggestedTaskID)
+        XCTAssertEqual(h.scheduler.pendingDates, [at(9)], "one timer, at the next boundary")
+
+        h.scheduler.advance(by: 60)
+        XCTAssertEqual(model.tasks.suggestedTaskID, task.id)
+        XCTAssertEqual(model.blockBoundaryTick, 1)
+        XCTAssertEqual(h.scheduler.pendingDates, [at(10)])
+
+        h.scheduler.advance(by: 3600)
+        XCTAssertNil(model.tasks.suggestedTaskID)
+        XCTAssertEqual(h.scheduler.pendingDates, [], "nothing left today")
+    }
+
+    func testTheBoundaryTimerRunsOnlyWhileSomethingShowsIt() async throws {
+        let h = try ModelHarness()
+        try addBlock(h, at: at(10))
+        let model = h.makeModel()
+        XCTAssertEqual(h.scheduler.pendingDates, [], "popover and planner closed")
+
+        model.setPopoverVisible(true)
+        XCTAssertEqual(h.scheduler.pendingDates, [at(10)])
+        model.setPopoverVisible(false)
+        XCTAssertEqual(h.scheduler.pendingDates, [])
+
+        let store = TimelineStore(model: model)
+        let observing = Task { await store.observe() }
+        try await waitUntil { h.scheduler.pendingDates == [at(10)] }
+        observing.cancel()
+        try await waitUntil { h.scheduler.pendingDates.isEmpty }
+    }
+
+    /// A block added or moved before the pending boundary reschedules the one timer.
+    func testBlockChangesRescheduleTheBoundary() throws {
+        let h = try ModelHarness()
+        let task = try makeTask(h)
+        let block = try addBlock(h, at: at(10))
+        let model = h.makeModel()
+        model.setPopoverVisible(true)
+        let store = TimelineStore(model: model)
+        XCTAssertEqual(h.scheduler.pendingDates, [at(10)])
+
+        try XCTUnwrap(store.dropTask(task.id, at: at(9, 30)))
+        XCTAssertEqual(h.scheduler.pendingDates, [at(9, 30)])
+
+        store.dragMove(block.id, by: -45 * 60)
+        store.endDrag()
+        XCTAssertEqual(h.scheduler.pendingDates, [at(9, 15)])
+
+        h.scheduler.advance(by: 15 * 60)
+        XCTAssertEqual(store.isRunning(try XCTUnwrap(store.block(id: block.id))), false, "no focus")
+        XCTAssertEqual(h.scheduler.pendingDates, [at(9, 30)])
+    }
+
+    func testTheRunningHighlightUpdatesAtABlocksStart() throws {
+        let h = try ModelHarness()
+        let task = try makeTask(h)
+        let block = try addBlock(h, at: at(9, 15), taskID: task.id)
+        let model = h.makeModel()
+        model.setPopoverVisible(true)
+        let store = TimelineStore(model: model)
+        model.startFocus(on: task.id)
+        XCTAssertFalse(store.isRunning(block))
+
+        let invalidated = Flag()
+        withObservationTracking { _ = store.isRunning(block) } onChange: { invalidated.set() }
+        h.scheduler.advance(by: 15 * 60)
+        XCTAssertTrue(invalidated.isSet, "the timeline re-renders at the boundary")
+        XCTAssertTrue(store.isRunning(block))
     }
 
     func testOnlyTheVisibleDayIsShown() throws {
@@ -352,6 +634,15 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(store.initialScrollHour, 2, "08:00, an hour before 09:00")
         store.showNextDay()
         XCTAssertEqual(store.initialScrollHour, 2, "08:00 on an empty day")
+    }
+
+    /// Set from an observation's `onChange`, which may run off the main actor.
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+
+        var isSet: Bool { lock.withLock { value } }
+        func set() { lock.withLock { value = true } }
     }
 
     private func waitUntil(

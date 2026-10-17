@@ -6,8 +6,9 @@ import os
 /// The planner timeline's day: its blocks, the drag in progress, and the inline editor.
 ///
 /// Drags only touch `drag`, so the dragged block follows the pointer without a database write;
-/// the drop writes once. Writes show at once through `overrides`, which hide the observation's
-/// stale values until it catches up, so a dropped block never jumps back.
+/// the drop writes once. Writes are synchronous and followed by a synchronous read, so a dropped
+/// block shows at once with no optimistic state to reconcile, and the observation is fenced so
+/// a value fetched before the write can't put it back.
 @MainActor
 @Observable
 final class TimelineStore {
@@ -31,8 +32,11 @@ final class TimelineStore {
 
     /// The inline title field and task picker, for a new block or a rename.
     struct Editor: Equatable {
+        /// A new block's draft, or the row being renamed with the editor's title and task.
         var block: TimeBlock
         var isNew: Bool
+        /// The row as the rename began, so a save writes only what the editor changed.
+        var base: TimeBlock
     }
 
     private(set) var day: CivilDay
@@ -40,17 +44,16 @@ final class TimelineStore {
     private(set) var drag: Drag?
     var editor: Editor?
     var selectedBlockID: UUID?
-    /// The block whose ▶ started the current focus, so it highlights even outside its time.
-    private(set) var startedBlockID: UUID?
 
-    private var observed: [TimeBlock] = []
-    /// Local writes the observation hasn't delivered yet; `nil` is a delete.
-    private var overrides: [UUID: TimeBlock?] = [:]
+    private var saved: [TimeBlock] = []
 
     @ObservationIgnored let model: AppModel
     private var clock: any TimeSource { model.clock }
     /// Database writes made, for tests that check a drag writes only on drop.
     @ObservationIgnored private(set) var writeCount = 0
+    /// Bumped by each successful write. A subscription that began before it may still deliver
+    /// a value fetched before the write, so its values are dropped and it's replaced.
+    @ObservationIgnored private(set) var writeGeneration = 0
     @ObservationIgnored private var generation = 0
 
     init(model: AppModel, day: CivilDay? = nil) {
@@ -74,13 +77,29 @@ final class TimelineStore {
     var today: CivilDay { database.day(containing: clock.now) }
     var isToday: Bool { day == today }
 
-    /// What's on the timeline: saved blocks, local writes on top, and the drag's preview.
+    /// What's on the timeline: saved blocks, with the drag's preview and a new block's draft.
     var blocks: [TimeBlock] {
-        var byID = Dictionary(observed.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for (id, block) in overrides { byID[id] = block }
+        var byID = Dictionary(saved.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         if let drag { byID[drag.preview.id] = drag.preview }
         if let editor, editor.isNew { byID[editor.block.id] = editor.block }
         return byID.values.sorted { ($0.start, $0.duration, $0.id.uuidString) < ($1.start, $1.duration, $1.id.uuidString) }
+    }
+
+    /// The block being drawn or named that isn't saved yet.
+    var draftID: UUID? {
+        if let drag, drag.kind == .create { return drag.preview.id }
+        if let editor, editor.isNew { return editor.block.id }
+        return nil
+    }
+
+    /// Where the editor's block is now. A rename follows a move made while it's open.
+    var editorBlock: TimeBlock? {
+        guard let editor else { return nil }
+        guard !editor.isNew, let current = block(id: editor.block.id) else { return editor.block }
+        var shown = current
+        shown.title = editor.block.title
+        shown.taskID = editor.block.taskID
+        return shown
     }
 
     func block(id: UUID?) -> TimeBlock? {
@@ -88,12 +107,13 @@ final class TimelineStore {
         return blocks.first { $0.id == id }
     }
 
-    /// The block a focus is running on: the one its ▶ started, or one scheduled now for the
-    /// focused task (or for no task, during a focus without one).
+    /// A block scheduled now for the task the running focus counts toward (or for no task,
+    /// during a focus without one). Read from the engine each time rather than remembered, so a
+    /// stop, a task switch or the block's end all clear it.
     func isRunning(_ block: TimeBlock) -> Bool {
-        guard model.isFocusing else { return false }
-        if block.id == startedBlockID { return true }
-        return block.contains(now) && block.taskID == model.selectedTaskID
+        // Re-evaluated as now crosses a block's start or end, not just on the minute.
+        _ = model.blockBoundaryTick
+        return model.isFocusing && block.taskID == model.selectedTaskID && block.contains(now)
     }
 
     /// Tasks a block can link to: open ones for today and the inbox.
@@ -115,8 +135,7 @@ final class TimelineStore {
         selectedBlockID = nil
         self.day = day
         layout = Self.layout(for: day, calendar: calendar)
-        observed = []
-        overrides = [:]
+        saved = []
         reload()
     }
 
@@ -137,10 +156,29 @@ final class TimelineStore {
     func observe() async {
         generation += 1
         let generation = generation
-        for await value in database.blocks.observe(in: layout.visible) {
-            guard self.generation == generation, !Task.isCancelled else { return }
-            apply(value)
+        model.plannerDidAppear()
+        defer { model.plannerDidDisappear() }
+        while self.generation == generation, !Task.isCancelled {
+            let fence = writeGeneration
+            var isStale = false
+            for await value in database.blocks.observe(in: layout.visible) {
+                guard self.generation == generation, !Task.isCancelled else { return }
+                guard receive(value, subscribedAt: fence) else {
+                    isStale = true
+                    break
+                }
+            }
+            // A fresh subscription fetches after the write, so its first value is current.
+            guard isStale else { return }
         }
+    }
+
+    /// Takes an observed value, unless its subscription began before the latest write.
+    @discardableResult
+    func receive(_ value: [TimeBlock], subscribedAt fence: Int) -> Bool {
+        guard fence == writeGeneration else { return false }
+        apply(value)
+        return true
     }
 
     private func reload() {
@@ -148,16 +186,14 @@ final class TimelineStore {
     }
 
     private func apply(_ value: [TimeBlock]) {
-        // Drop overrides the database now agrees with; keep the rest over stale values.
-        let saved = Dictionary(value.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let settled = overrides.filter { id, block in saved[id] == block }.map(\.key)
-        for id in settled { overrides[id] = nil }
-        if value != observed {
-            observed = value
-            for id in Set(value.compactMap(\.taskID)) { model.tasks.ensureLoaded(id) }
-        }
-        // The popover suggests the task of the block scheduled now; a write here can change it.
-        if isToday { model.tasks.refreshSuggestion() }
+        guard value != saved else { return }
+        saved = value
+        for id in Set(value.compactMap(\.taskID)) { model.tasks.ensureLoaded(id) }
+        if let editor, !editor.isNew, !value.contains(where: { $0.id == editor.block.id }) { self.editor = nil }
+        if let id = selectedBlockID, !value.contains(where: { $0.id == id }) { selectedBlockID = nil }
+        // The popover suggests the task of the block scheduled now, and when that next changes
+        // depends on today's blocks.
+        if isToday { model.blocksDidChange() }
     }
 
     // MARK: - Dragging
@@ -200,17 +236,15 @@ final class TimelineStore {
         switch drag.kind {
         case .create:
             selectedBlockID = nil
-            editor = Editor(block: drag.preview, isNew: true)
+            editor = Editor(block: drag.preview, isNew: true, base: drag.preview)
         case .move, .resize:
             selectedBlockID = drag.preview.id
             guard drag.preview != drag.original else { return }
             let preview = drag.preview
-            write(preview, "moving a block") {
-                if drag.kind == .move {
-                    try database.blocks.move(id: preview.id, to: preview.start)
-                } else {
-                    try database.blocks.resize(id: preview.id, duration: preview.duration)
-                }
+            if drag.kind == .move {
+                edit(preview.id, TimeBlockEdit(start: preview.start), "moving a block")
+            } else {
+                edit(preview.id, TimeBlockEdit(duration: preview.duration), "resizing a block")
             }
         }
     }
@@ -253,21 +287,26 @@ final class TimelineStore {
     func beginRename(_ id: UUID) {
         guard let block = block(id: id) else { return }
         cancelDrag()
-        editor = Editor(block: block, isNew: false)
+        editor = Editor(block: block, isNew: false, base: block)
     }
 
-    /// Saves the editor. A new block with neither a title nor a task is dropped.
+    /// Saves the editor. A new block with neither a title nor a task is dropped. A rename writes
+    /// only the title and task it changed, into the row as it is now.
     func commitEditor() {
-        guard var edited = editor?.block, let isNew = editor?.isNew else { return }
-        editor = nil
+        guard let editor else { return }
+        self.editor = nil
+        var edited = editor.block
         edited.title = edited.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if edited.title.isEmpty, let task = model.tasks.task(id: edited.taskID) { edited.title = task.title }
-        if isNew {
+        if editor.isNew {
             guard !edited.title.isEmpty else { return }
             if insert(edited) { selectedBlockID = edited.id }
         } else {
-            guard !edited.title.isEmpty, edited != block(id: edited.id) else { return }
-            update(edited, "renaming a block")
+            var change = TimeBlockEdit()
+            if !edited.title.isEmpty, edited.title != editor.base.title { change.title = edited.title }
+            if edited.taskID != editor.base.taskID { change.taskID = .some(edited.taskID) }
+            guard !change.isEmpty else { return }
+            edit(edited.id, change, "renaming a block")
         }
     }
 
@@ -293,27 +332,22 @@ final class TimelineStore {
     }
 
     func link(_ id: UUID, to taskID: UUID?) {
-        guard var block = block(id: id), block.taskID != taskID else { return }
-        block.taskID = taskID
-        if let task = model.tasks.task(id: taskID), block.title.isEmpty { block.title = task.title }
-        update(block, "linking a block")
+        guard let block = block(id: id), block.taskID != taskID else { return }
+        var change = TimeBlockEdit(taskID: .some(taskID))
+        if let task = model.tasks.task(id: taskID), block.title.isEmpty { change.title = task.title }
+        edit(id, change, "linking a block")
     }
 
     func setColor(_ id: UUID, _ color: String?) {
-        guard var block = block(id: id), block.color != color else { return }
-        block.color = color
-        update(block, "colouring a block")
+        guard let block = block(id: id), block.color != color else { return }
+        edit(id, TimeBlockEdit(color: .some(color)), "colouring a block")
     }
 
     func delete(_ id: UUID) {
         guard block(id: id) != nil else { return }
         if selectedBlockID == id { selectedBlockID = nil }
         if editor?.block.id == id { editor = nil }
-        overrides[id] = .some(nil)
-        writeCount += 1
-        if attempt("deleting a block", { try database.blocks.delete(id: id) }) == nil {
-            overrides[id] = nil
-        }
+        write("deleting a block") { _ = try database.blocks.delete(id: id) }
     }
 
     func deleteSelected() {
@@ -331,32 +365,28 @@ final class TimelineStore {
             model.selectTask(nil)
             if !model.isFocusing { model.startFocus() }
         }
-        startedBlockID = block.id
     }
 
     // MARK: - Writing
 
     @discardableResult
     private func insert(_ block: TimeBlock) -> Bool {
-        write(block, "adding a block") { try database.blocks.insert(block) }
+        write("adding a block") { try database.blocks.insert(block) }
     }
 
-    private func update(_ block: TimeBlock, _ what: String) {
-        write(block, what) { try database.blocks.update(block) }
+    private func edit(_ id: UUID, _ change: TimeBlockEdit, _ what: String) {
+        write(what) { try database.blocks.edit(id: id, change) }
     }
 
-    /// Shows `block` at once, then writes it; a failed write puts the saved value back.
+    /// Writes, then reads the visible range back: the write shows at once, and a failed one
+    /// shows what's actually saved, such as a block deleted elsewhere.
     @discardableResult
-    private func write(_ block: TimeBlock, _ what: String, _ body: () throws -> Void) -> Bool {
-        let previous = overrides[block.id]
-        overrides[block.id] = block
+    private func write(_ what: String, _ body: () throws -> Void) -> Bool {
         writeCount += 1
-        guard attempt(what, body) != nil else {
-            overrides[block.id] = previous
-            return false
-        }
-        if isToday { model.tasks.refreshSuggestion() }
-        return true
+        let succeeded = attempt(what, body) != nil
+        if succeeded { writeGeneration += 1 }
+        reload()
+        return succeeded
     }
 
     @discardableResult

@@ -32,6 +32,9 @@ final class AppModel {
     private(set) var planner = SessionPlanner()
     private(set) var completedToday = 0
     private(set) var isPopoverVisible = false
+    /// Bumped as now crosses a block's start or end, so what reads the clock to find the block
+    /// scheduled now (the running highlight) catches up without a database change.
+    private(set) var blockBoundaryTick = 0
     /// Set by the quick-add hotkey until the popover's field takes focus.
     private(set) var wantsQuickAddFocus = false
     /// The task the current focus counts toward, or the next one will. It outlives a stop, so
@@ -62,6 +65,10 @@ final class AppModel {
     @ObservationIgnored private var boundaryTimer: (any ScheduledTimer)?
     @ObservationIgnored private var refreshTimer: (any ScheduledTimer)?
     @ObservationIgnored private var dayMonitor: DayChangeMonitor?
+    @ObservationIgnored private var blockBoundaryTimer: (any ScheduledTimer)?
+    /// Open planner timelines; a count because a day change starts the new one's observation
+    /// before the old one's has ended.
+    @ObservationIgnored private var plannerViewers = 0
 
     init(
         clock: any TimeSource = SystemClock(),
@@ -214,7 +221,10 @@ final class AppModel {
     /// names no day goes to today, or the inbox. Blank titles add nothing.
     @discardableResult
     func addTask(_ text: String, toInbox: Bool = false) -> TaskItem? {
-        tasks.add(parseQuickAdd(text), defaultDay: toInbox ? nil : tasks.today)
+        let task = tasks.add(parseQuickAdd(text), defaultDay: toInbox ? nil : tasks.today)
+        // The line may have named a start time, which adds a block.
+        if task != nil { blocksDidChange() }
+        return task
     }
 
     func requestQuickAddFocus() {
@@ -247,6 +257,50 @@ final class AppModel {
         tasks.rollOverIfNeeded(force: reason == .timeZoneChanged)
         refreshCompletedToday()
         if isPopoverVisible { tasks.refreshSuggestion() }
+        scheduleBlockBoundary()
+    }
+
+    // MARK: - Blocks
+
+    /// Today's blocks changed: what's scheduled now, and when that next changes, may have too.
+    func blocksDidChange() {
+        tasks.refreshSuggestion()
+        scheduleBlockBoundary()
+    }
+
+    func plannerDidAppear() {
+        plannerViewers += 1
+        scheduleBlockBoundary()
+    }
+
+    func plannerDidDisappear() {
+        plannerViewers = max(plannerViewers - 1, 0)
+        scheduleBlockBoundary()
+    }
+
+    /// One timer, at the next start or end of a block today, and only while the popover or
+    /// the planner can show what's scheduled now.
+    private func scheduleBlockBoundary() {
+        blockBoundaryTimer?.cancel()
+        blockBoundaryTimer = nil
+        guard isPopoverVisible || plannerViewers > 0 else { return }
+        let next: Date?
+        do {
+            next = try database.blocks.nextBoundary(after: clock.now)
+        } catch {
+            Self.log.error("reading the next block boundary failed: \(String(describing: error), privacy: .public)")
+            next = nil
+        }
+        // None left today: the day-change monitor reschedules after midnight.
+        guard let next else { return }
+        blockBoundaryTimer = scheduler.schedule(at: next) { [weak self] in self?.blockBoundaryCrossed() }
+    }
+
+    private func blockBoundaryCrossed() {
+        blockBoundaryTimer = nil
+        blockBoundaryTick &+= 1
+        tasks.refreshSuggestion()
+        scheduleBlockBoundary()
     }
 
     // MARK: - Planning
@@ -303,6 +357,8 @@ final class AppModel {
         boundaryTimer = nil
         refreshTimer?.cancel()
         refreshTimer = nil
+        blockBoundaryTimer?.cancel()
+        blockBoundaryTimer = nil
         sound.stopTicking()
     }
 
@@ -319,6 +375,7 @@ final class AppModel {
             tasks.refreshSuggestion()
         }
         scheduleRefresh()
+        scheduleBlockBoundary()
     }
 
     // MARK: - Event handling
