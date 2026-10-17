@@ -176,6 +176,13 @@ struct WeekChart: View {
         0...max(60, maxMinutes * 1.18)
     }
 
+    /// Gridlines on round durations, never "1h 40m".
+    private var yTicks: [Double] {
+        let top = yDomain.upperBound
+        let step: Double = top <= 60 ? 15 : top <= 150 ? 30 : top <= 480 ? 60 : 120
+        return Array(stride(from: 0, through: top, by: step))
+    }
+
     var body: some View {
         Chart(days) { day in
             BarMark(
@@ -198,7 +205,7 @@ struct WeekChart: View {
         }
         .chartYScale(domain: yDomain)
         .chartYAxis {
-            AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { value in
+            AxisMarks(position: .leading, values: yTicks) { value in
                 AxisGridLine()
                 AxisValueLabel {
                     if let minutes = value.as(Double.self) {
