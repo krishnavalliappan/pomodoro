@@ -149,7 +149,7 @@ final class ClosureMenuItem: NSMenuItem {
         fatalError("init(coder:) is not supported")
     }
 
-    @objc private func fire() {
+    @MainActor @objc private func fire() {
         handler()
     }
 }
