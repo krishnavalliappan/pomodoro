@@ -134,7 +134,7 @@ struct AppSettingsTests {
 struct PresetManagementTests {
     @Test func builtInsHaveStableIDs() {
         #expect(Preset.classic.id.uuidString == "00000000-0000-0000-0000-000000000001")
-        #expect(Preset.builtIns.allSatisfy(\.isBuiltIn))
+        #expect(Preset.builtIns.allSatisfy { $0.isBuiltIn })
         #expect(!Preset(name: "Mine", profile: .classic).isBuiltIn)
     }
 

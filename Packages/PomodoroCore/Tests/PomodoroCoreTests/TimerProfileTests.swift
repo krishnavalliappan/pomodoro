@@ -21,10 +21,12 @@ struct TimerProfileTests {
         #expect(TimerProfile.quick.summary == "15/3/10")
     }
 
-    @Test(arguments: [
-        (0.0, 60.0), (-5.0, 60.0), (59.0, 60.0), (60.0, 60.0), (90.0 * 60, 90.0 * 60),
-        (180.0 * 60, 180.0 * 60), (181.0 * 60, 180.0 * 60), (Double.infinity, 60.0), (Double.nan, 60.0),
-    ])
+    static let clampCases: [(TimeInterval, TimeInterval)] = [
+        (0, 60), (-5, 60), (59, 60), (60, 60), (5400, 5400),
+        (10800, 10800), (10860, 10800), (.infinity, 60), (.nan, 60),
+    ]
+
+    @Test(arguments: clampCases)
     func clampsDurationsToOneThrough180Minutes(input: TimeInterval, expected: TimeInterval) {
         let p = TimerProfile(
             focusDuration: input, shortBreakDuration: input, longBreakDuration: input, nudgeInterval: input)
