@@ -519,19 +519,19 @@ struct TimerEngineCadenceTests {
     }
 
     @Test func customLongBreakInterval() {
-        let (engine, clock) = makeEngine(TimerConfiguration(longBreakInterval: 2))
+        let (engine, clock) = makeEngine(TimerConfiguration(longBreakEvery: 2))
         let breaks = (0..<4).map { _ in completeFocus(engine, clock) }
         #expect(breaks == [.shortBreak, .longBreak, .shortBreak, .longBreak])
     }
 
     @Test func longBreaksCanBeDisabled() {
-        let (engine, clock) = makeEngine(TimerConfiguration(longBreakInterval: 0))
+        let (engine, clock) = makeEngine(TimerConfiguration(longBreakEvery: 0))
         let breaks = (0..<5).map { _ in completeFocus(engine, clock) }
         #expect(breaks.allSatisfy { $0 == .shortBreak })
     }
 
     @Test func abandonedFocusDoesNotAdvanceCadence() {
-        let (engine, clock) = makeEngine(TimerConfiguration(longBreakInterval: 2))
+        let (engine, clock) = makeEngine(TimerConfiguration(longBreakEvery: 2))
         _ = completeFocus(engine, clock)
         engine.start()
         clock.advance(by: 60)
@@ -635,7 +635,7 @@ struct TimerEngineReconcileTests {
     }
 
     @Test func nonFlowModeFreezesAtZero() throws {
-        let (engine, clock) = makeEngine(TimerConfiguration(overtimeEnabled: false))
+        let (engine, clock) = makeEngine(TimerConfiguration(flowMode: false))
         engine.start()
         clock.advance(by: focus + 600)
         #expect(kinds(engine.reconcile()) == ["focusEnded"])
@@ -655,7 +655,7 @@ struct TimerEngineReconcileTests {
     }
 
     @Test func nonFlowModeKeepGoingCountsOvertimeFromNow() {
-        let (engine, clock) = makeEngine(TimerConfiguration(overtimeEnabled: false))
+        let (engine, clock) = makeEngine(TimerConfiguration(flowMode: false))
         engine.start()
         clock.advance(by: focus + 600)
         engine.keepGoing()
@@ -666,7 +666,7 @@ struct TimerEngineReconcileTests {
     }
 
     @Test func nonFlowModeExtendResumes() throws {
-        let (engine, clock) = makeEngine(TimerConfiguration(overtimeEnabled: false))
+        let (engine, clock) = makeEngine(TimerConfiguration(flowMode: false))
         engine.start()
         clock.advance(by: focus + 600)
         engine.extend(by: 300)
@@ -680,7 +680,7 @@ struct TimerEngineReconcileTests {
     }
 
     @Test func nonFlowBreakEndsAwaitingDecision() {
-        let (engine, clock) = makeEngine(TimerConfiguration(overtimeEnabled: false))
+        let (engine, clock) = makeEngine(TimerConfiguration(flowMode: false))
         engine.start(phase: .shortBreak)
         clock.advance(by: 400)
         #expect(kinds(engine.reconcile()) == ["breakEnded"])
@@ -771,8 +771,8 @@ struct TimerStatePersistenceTests {
         #expect(configuration.duration(for: .shortBreak) == 300)
         #expect(configuration.duration(for: .longBreak) == 900)
         #expect(configuration.duration(for: .idle) == 0)
-        #expect(configuration.longBreakInterval == 4)
-        #expect(configuration.overtimeEnabled)
+        #expect(configuration.longBreakEvery == 4)
+        #expect(configuration.flowMode)
         #expect(configuration.nudgeInterval == 600)
         #expect(!configuration.autoStartBreaks)
         #expect(!configuration.autoStartFocus)
@@ -1014,7 +1014,7 @@ struct TimerEngineDurationValidationTests {
 
     @Test func shortPhasesWithinTheCapChainNormally() {
         let (engine, clock) = makeEngine(TimerConfiguration(
-            focusDuration: 1, shortBreakDuration: 1, longBreakInterval: 0,
+            focusDuration: 1, shortBreakDuration: 1, longBreakEvery: 0,
             nudgeInterval: nil, autoStartBreaks: true, autoStartFocus: true
         ))
         engine.start()
@@ -1086,7 +1086,7 @@ struct TimerEngineReviewFollowUpTests {
     }
 
     @Test func autoCycleHitsIndependentlyComputedBoundaries() {
-        let (engine, clock) = makeEngine(TimerConfiguration(longBreakInterval: 2, autoStartBreaks: true, autoStartFocus: true))
+        let (engine, clock) = makeEngine(TimerConfiguration(longBreakEvery: 2, autoStartBreaks: true, autoStartFocus: true))
         engine.start()
         let schedule: [(TimeInterval, [String])] = [
             (1500, ["focusEnded", "recorded:completed", "started:shortBreak"]),
@@ -1136,13 +1136,13 @@ struct TimerEngineReviewFollowUpTests {
     }
 
     @Test func awaitingDecisionRoundTrips() throws {
-        let (engine, clock) = makeEngine(TimerConfiguration(overtimeEnabled: false))
+        let (engine, clock) = makeEngine(TimerConfiguration(flowMode: false))
         engine.start()
         clock.now = t0 + focus + 100
         engine.reconcile()
         let data = try JSONEncoder().encode(engine.state)
         let restored = TimerEngine(
-            configuration: TimerConfiguration(overtimeEnabled: false),
+            configuration: TimerConfiguration(flowMode: false),
             clock: clock,
             state: try JSONDecoder().decode(TimerState.self, from: data)
         )

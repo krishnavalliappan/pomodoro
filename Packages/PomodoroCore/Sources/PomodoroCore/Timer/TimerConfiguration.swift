@@ -7,10 +7,11 @@ public struct TimerConfiguration: Sendable, Equatable, Codable {
     public var focusDuration: TimeInterval
     public var shortBreakDuration: TimeInterval
     public var longBreakDuration: TimeInterval
-    /// A long break follows every N completed focus sessions. Zero or less disables long breaks.
-    public var longBreakInterval: Int
+    /// A long break follows every N completed focus sessions. Zero or less disables long breaks,
+    /// which profiles never produce (they allow 1...16) but the engine supports.
+    public var longBreakEvery: Int
     /// Flow mode: when a phase ends, keep counting overtime instead of stopping.
-    public var overtimeEnabled: Bool
+    public var flowMode: Bool
     /// How often to re-nudge while in overtime. `nil` (or non-positive) turns nudges off.
     public var nudgeInterval: TimeInterval?
     public var autoStartBreaks: Bool
@@ -20,8 +21,8 @@ public struct TimerConfiguration: Sendable, Equatable, Codable {
         focusDuration: TimeInterval = 25 * 60,
         shortBreakDuration: TimeInterval = 5 * 60,
         longBreakDuration: TimeInterval = 15 * 60,
-        longBreakInterval: Int = 4,
-        overtimeEnabled: Bool = true,
+        longBreakEvery: Int = 4,
+        flowMode: Bool = true,
         nudgeInterval: TimeInterval? = 10 * 60,
         autoStartBreaks: Bool = false,
         autoStartFocus: Bool = false
@@ -29,8 +30,8 @@ public struct TimerConfiguration: Sendable, Equatable, Codable {
         self.focusDuration = focusDuration
         self.shortBreakDuration = shortBreakDuration
         self.longBreakDuration = longBreakDuration
-        self.longBreakInterval = longBreakInterval
-        self.overtimeEnabled = overtimeEnabled
+        self.longBreakEvery = longBreakEvery
+        self.flowMode = flowMode
         self.nudgeInterval = nudgeInterval
         self.autoStartBreaks = autoStartBreaks
         self.autoStartFocus = autoStartFocus

@@ -89,7 +89,7 @@ public final class TimerEngine {
 
     /// The break that would follow the current focus, counting it once it has reached its planned end.
     public var nextBreakPhase: TimerPhase {
-        let interval = configuration.longBreakInterval
+        let interval = configuration.longBreakEvery
         let pending = state.phase == .focus && state.endDelivered ? 1 : 0
         return interval > 0 && state.completedFocusesInCycle + pending >= interval ? .longBreak : .shortBreak
     }
@@ -310,7 +310,7 @@ public final class TimerEngine {
             }
         }
 
-        if configuration.overtimeEnabled {
+        if configuration.flowMode {
             state.status = .overtime(since: end)
             // Overtime that piled up while asleep is announced by the end event alone, not a burst of nudges.
             state.nudgeAnchor = activeNudgeInterval.map { (now.timeIntervalSince(end) / $0).rounded(.down) * $0 } ?? 0
