@@ -113,8 +113,7 @@ struct DayTimelineView: View {
     @ViewBuilder
     private func blockView(_ block: TimeBlock, frame: TimelineLayout.Frame) -> some View {
         let task = store.model.tasks.task(id: block.taskID)
-        let isDraft = store.drag?.kind == .create && store.drag?.preview.id == block.id
-            || store.editor.map { $0.isNew && $0.block.id == block.id } ?? false
+        let isDraft = store.draftID == block.id
         let view = TimelineBlockView(
             block: block,
             frame: frame,
@@ -197,7 +196,7 @@ struct DayTimelineView: View {
 
     /// Below the block being edited, or above it when that would run off the bottom.
     private var editorY: CGFloat {
-        guard let block = store.editor?.block else { return 0 }
+        guard let block = store.editorBlock else { return 0 }
         let below = layout.y(for: block.end) + 4
         if below + BlockEditorCard.height <= layout.totalHeight { return below }
         return max(0, layout.y(for: block.start) - BlockEditorCard.height - 4)
@@ -250,7 +249,7 @@ struct TimelineHeader: View {
     }
 
     private var summary: String {
-        let blocks = store.blocks.filter { $0.duration > 0 && !$0.title.isEmpty }
+        let blocks = store.blocks.filter { $0.id != store.draftID && $0.duration > 0 && !$0.title.isEmpty }
         guard !blocks.isEmpty else { return "Drag on the timeline to block time, or drop a task here" }
         let total = blocks.reduce(0) { $0 + $1.duration }
         let count = blocks.count == 1 ? "1 block" : "\(blocks.count) blocks"
@@ -411,7 +410,8 @@ struct TimelineBlockView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     if let task {
-                        EstimateDots(estimate: task.estimatePomodoros, actual: actual, size: 5)
+                        // Quaternary dots vanish into a tinted fill in dark mode.
+                        EstimateDots(estimate: task.estimatePomodoros, actual: actual, size: 5, unfilled: AnyShapeStyle(.tertiary))
                     }
                 }
                 .font(.caption)
@@ -492,7 +492,7 @@ struct BlockEditorCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let block = store.editor?.block {
+            if let block = store.editorBlock {
                 Text("\(isNew ? "New block" : "Rename") · \(TimelineFormat.range(block, calendar: store.calendar))")
                     .font(.caption)
                     .foregroundStyle(.secondary)

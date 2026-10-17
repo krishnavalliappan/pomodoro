@@ -46,9 +46,13 @@ final class PlannerSnapshotTests: XCTestCase {
 
     func testPlannerWindow() throws {
         let h = try ModelHarness()
-        try h.seedTasks()
+        let seeded = try h.seedTasks()
+        let model = h.makeModel()
+        // Review PR's block is scheduled now, so focusing on it shows it running, as in
+        // DayTimelineView.seeded.
+        model.startFocus(on: seeded.reviewPR.id)
         Snapshot.assertLightAndDark(
-            PlannerView(model: h.makeModel()),
+            PlannerView(model: model),
             size: PlannerView.size,
             name: "PlannerView",
             variant: "seeded",
