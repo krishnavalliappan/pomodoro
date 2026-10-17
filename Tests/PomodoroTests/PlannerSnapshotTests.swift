@@ -37,7 +37,7 @@ final class PlannerSnapshotTests: XCTestCase {
         try h.seedLongTitle()
         Snapshot.assertLightAndDark(
             TaskListView(model: h.makeModel(), defaults: PopoverViewSnapshotTests.freshDefaults()),
-            size: CGSize(width: PlannerView.sidebarWidth, height: 200),
+            size: CGSize(width: PlannerView.sidebarWidth, height: 240),
             name: "TaskListView",
             variant: "longTitle",
             inWindow: true

@@ -1363,6 +1363,38 @@ struct TimerEngineAssignTaskTests {
         #expect(kinds(engine.assignTask(UUID())) == ["focusEnded"])
     }
 
+    @Test func afterAClockRollbackTimingIsKept() {
+        let (engine, clock) = makeEngine(TimerConfiguration(nudgeInterval: nil))
+        engine.start(taskID: UUID())
+        clock.now = t0 + 1000
+        engine.reconcile()
+        clock.now = t0 + 400
+        let second = UUID()
+        #expect(engine.assignTask(second).isEmpty)
+        #expect(engine.taskID == second)
+        #expect(engine.snapshot().elapsed == 1000)
+        #expect(engine.nextBoundary == t0 + 900)
+    }
+
+    /// From inside the provider, an assignment would replay the half-finished transition.
+    @Test func fromTheProviderItIsIgnored() {
+        let (engine, clock) = makeEngine(TimerConfiguration(autoStartFocus: true))
+        engine.trapsOnReentry = false
+        let first = UUID()
+        engine.start(phase: .shortBreak)
+        engine.assignTask(first)
+        clock.advance(by: 5 * 60)
+        var nested: [[TimerEvent]] = []
+        engine.configurationForFocus = {
+            nested.append(engine.assignTask(UUID()))
+            return nil
+        }
+        #expect(kinds(engine.reconcile()).contains("breakEnded"))
+        #expect(nested == [[]])
+        #expect(engine.phase == .focus)
+        #expect(engine.taskID == first)
+    }
+
     @Test func afterADeliveredEndItEmitsNothingMore() {
         let (engine, clock) = makeEngine()
         engine.start(taskID: UUID())
