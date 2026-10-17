@@ -36,7 +36,8 @@ protocol TimerCommandHandling: AnyObject {
 ///   the phase changed. Then both the pending and the delivered copy go. The system ignores the
 ///   removal once the trigger has fired, so a request cancelled at its boundary is retired: for
 ///   the next `handoffAttempts` checks a late delivery of it is hidden if the app is frontmost
-///   and removed from Notification Center otherwise.
+///   and removed from Notification Center otherwise. The same goes for a handed-off request
+///   whose prompt is cleared, since it may have fired without being delivered yet.
 ///
 /// All center calls run in order on one task, so a later sync never overtakes an earlier one.
 @MainActor
@@ -158,6 +159,9 @@ final class NotificationService {
     /// A prompt whose immediate post was refused, so it isn't retried until authorization changes.
     private var refusedSerial: Int?
     private var retired: Retired?
+    /// The last due request handed off to the system. Leaving the pending queue only means its
+    /// trigger fired, so it is kept until it's retired in case it's still on its way.
+    private var issued: Request?
 
     private var work: Task<Void, Never>?
     private var dirty = false
@@ -362,7 +366,9 @@ final class NotificationService {
             if let prompt, prompt.request.date >= due.request.date {
                 if due.accepted, Self.sameMessage(due.request.announcement, prompt.request.announcement) {
                     switch await waitUntilDelivered() {
-                    case .delivered: onScreen = Shown(serial: prompt.serial, announcement: due.request.announcement)
+                    case .delivered:
+                        onScreen = Shown(serial: prompt.serial, announcement: due.request.announcement)
+                        issued = due.request
                     case .superseded: return
                     case .timedOut: break
                     }
@@ -411,6 +417,8 @@ final class NotificationService {
 
         // 4. Clear a prompt that no longer applies.
         if prompt == nil, onScreen != nil {
+            if let issued, retired == nil { retired = Retired(request: issued) }
+            issued = nil
             center.removeDeliveredNotifications(withIdentifiers: [Self.identifier])
             onScreen = nil
         }

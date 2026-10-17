@@ -785,6 +785,75 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(center.banners.map(\.content.title), ["Focus complete"])
     }
 
+    /// Fires the focus end before the reconcile hands it off, then runs `body` before it lands.
+    private func cancelAfterTheHandoff(frontmost: Bool = false, _ body: (TimerEngine) -> [TimerEvent]) async {
+        center.isFrontmost = frontmost
+        await act { $0.start() }
+        clock.advance(by: focus)
+        center.fireDue()
+        await act { $0.reconcile() }
+        XCTAssertEqual(center.onlyPending?.request.content.title, "Still focusing", "the handoff didn't complete")
+        XCTAssertNotNil(center.inTransit.first)
+        let queries = center.deliveredQueries
+        service.sync(with: engine, events: body(engine))
+        for _ in 0..<1_000 where center.deliveredQueries == queries { await Task.yield() }
+        center.land()
+        await service.settle()
+    }
+
+    func testResetAfterTheHandoffRemovesTheLateDelivery() async {
+        await cancelAfterTheHandoff { $0.reset() }
+        XCTAssertTrue(center.delivered.isEmpty, "the reset prompt stayed in Notification Center")
+        XCTAssertTrue(center.pending.isEmpty)
+    }
+
+    func testAnswerAfterTheHandoffRemovesTheLateDelivery() async {
+        await cancelAfterTheHandoff { $0.startBreak() }
+        XCTAssertTrue(center.delivered.isEmpty, "the answered prompt stayed in Notification Center")
+        XCTAssertEqual(center.onlyPending?.request.content.categoryIdentifier, "BREAK_END")
+    }
+
+    func testExtendAfterTheHandoffRemovesTheLateDeliveryButNotTheNewEnd() async throws {
+        await cancelAfterTheHandoff { $0.extend(by: 5 * 60) }
+        XCTAssertTrue(center.delivered.isEmpty)
+        let entry = try XCTUnwrap(center.onlyPending)
+        XCTAssertEqual(entry.fireDate, t0 + focus + 5 * 60)
+        XCTAssertEqual(entry.request.content.title, "Focus complete")
+    }
+
+    func testResetAfterTheHandoffIsNotPresentedWhileFrontmost() async {
+        await cancelAfterTheHandoff(frontmost: true) { $0.reset() }
+        XCTAssertTrue(center.banners.isEmpty, "the reset prompt was presented")
+        XCTAssertTrue(center.delivered.isEmpty)
+    }
+
+    func testAnswerAfterTheHandoffIsNotPresentedWhileFrontmost() async {
+        await cancelAfterTheHandoff(frontmost: true) { $0.startBreak() }
+        XCTAssertTrue(center.banners.isEmpty, "the answered prompt was presented")
+        XCTAssertTrue(center.delivered.isEmpty)
+    }
+
+    func testExtendAfterTheHandoffIsNotPresentedWhileFrontmost() async {
+        await cancelAfterTheHandoff(frontmost: true) { $0.extend(by: 5 * 60) }
+        XCTAssertTrue(center.banners.isEmpty, "the extended prompt was presented")
+        XCTAssertTrue(center.delivered.isEmpty)
+    }
+
+    func testHandedOffPromptThatStillAppliesLandsAndStays() async {
+        center.isFrontmost = true
+        await act { $0.start() }
+        clock.advance(by: focus)
+        center.fireDue()
+        await act { $0.reconcile() }
+        await act { $0.pause() } // the prompt stays relevant while paused
+        center.land()
+        await service.settle()
+        XCTAssertEqual(center.banners.map(\.content.title), ["Focus complete"])
+        XCTAssertEqual(center.onlyDelivered?.content.title, "Focus complete")
+        await act { $0.resume() }
+        XCTAssertEqual(center.onlyDelivered?.content.title, "Focus complete", "a later sync removed it")
+    }
+
     func testRetiredRequestIsWatchedForABoundedTime() async {
         await act { $0.start() }
         clock.advance(by: focus)
