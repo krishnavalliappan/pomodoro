@@ -17,14 +17,22 @@ struct PomodoroApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var model: AppModel?
+    private var services: AppServices?
     private var menuBar: MenuBarController?
     private let windows = WindowRouter()
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // Unit tests run inside the app; keep them off the real defaults, database and menu bar.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Unit tests run inside the app; keep them off the real defaults, database, notifications and menu bar.
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
-        let model = AppModel.live()
-        self.model = model
+        // Before launch finishes: a cold launch from a notification action delivers its response
+        // right after, and it's lost if the notification delegate isn't installed yet.
+        let services = AppServices.live()
+        self.services = services
+        model = services.model
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard let model else { return }
         menuBar = MenuBarController(model: model, windows: windows)
     }
 
