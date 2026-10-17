@@ -6,7 +6,8 @@ import XCTest
 /// Behaves like the system center: requests with a trigger wait until they're due, requests
 /// without one are delivered at once, and an identifier replaces its earlier request, pending or
 /// delivered. The system delivers due requests on its own schedule: `deliverDue()` forces it, and a
-/// pending-queue check does it too unless `deliveryLag` holds it back.
+/// pending-queue check does it too unless `deliveryLag` holds it back. `fireDue()` models a fired
+/// trigger whose delivery is still on its way: removing it does nothing, and `land()` delivers it.
 @MainActor
 private final class FakeNotificationCenter: NotificationCenterClient {
     struct Pending {
@@ -15,6 +16,7 @@ private final class FakeNotificationCenter: NotificationCenterClient {
     }
 
     var onResponse: (@MainActor (NotificationResponse) async -> Void)?
+    var shouldPresent: (@MainActor (DeliveredNotice) -> Bool)?
     private(set) var authorizationRequests: [UNAuthorizationOptions] = []
     private(set) var categories: Set<UNNotificationCategory> = []
     private(set) var pending: [String: Pending] = [:]
@@ -24,6 +26,14 @@ private final class FakeNotificationCenter: NotificationCenterClient {
     private(set) var mostOnScreen = 0
     private(set) var addCount = 0
     private(set) var pendingQueries = 0
+    private(set) var deliveredQueries = 0
+    private(set) var inTransit: [UNNotificationRequest] = []
+    /// Whether `land()` asks `shouldPresent` first, as the system does while the app is frontmost.
+    var isFrontmost = false
+    /// Makes `add` wait for `releaseAdds()` before completing, as the system's completion can.
+    var holdsAdds = false
+    private var heldAdds: [CheckedContinuation<Void, Never>] = []
+    var heldAddCount: Int { heldAdds.count }
     var authorizationCompletion: (@MainActor @Sendable (Bool) -> Void)?
     /// Models the system refusing requests until notifications are allowed.
     var isAuthorized = true
@@ -46,7 +56,9 @@ private final class FakeNotificationCenter: NotificationCenterClient {
 
     func add(_ request: UNNotificationRequest) async -> Bool {
         addCount += 1
-        guard isAuthorized else { return false }
+        let accepted = isAuthorized
+        if holdsAdds { await withCheckedContinuation { heldAdds.append($0) } }
+        guard accepted else { return false }
         if let trigger = request.trigger as? UNTimeIntervalNotificationTrigger {
             pending[request.identifier] = Pending(request: request, fireDate: clock.now + trigger.timeInterval)
         } else {
@@ -62,6 +74,17 @@ private final class FakeNotificationCenter: NotificationCenterClient {
         return Set(pending.keys)
     }
 
+    func deliveredNotices() async -> [DeliveredNotice] {
+        deliveredQueries += 1
+        return delivered.values.map(DeliveredNotice.init)
+    }
+
+    func releaseAdds() {
+        let held = heldAdds
+        heldAdds = []
+        held.forEach { $0.resume() }
+    }
+
     func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
         identifiers.forEach { pending[$0] = nil }
     }
@@ -74,6 +97,21 @@ private final class FakeNotificationCenter: NotificationCenterClient {
         for (id, entry) in pending where entry.fireDate <= clock.now {
             pending[id] = nil
             show(entry.request)
+        }
+    }
+
+    func fireDue() {
+        for (id, entry) in pending where entry.fireDate <= clock.now {
+            pending[id] = nil
+            inTransit.append(entry.request)
+        }
+    }
+
+    func land() {
+        let arriving = inTransit
+        inTransit = []
+        for request in arriving where !isFrontmost || shouldPresent?(DeliveredNotice(request)) != false {
+            show(request)
         }
     }
 
@@ -268,6 +306,35 @@ final class NotificationServiceTests: XCTestCase {
         XCTAssertEqual(center.onlyPending?.request.content.categoryIdentifier, "BREAK_END")
     }
 
+    /// Grants authorization while a refused `add` is still waiting for its completion.
+    private func grantDuringRefusedAdd(_ body: () -> Void) async {
+        center.holdsAdds = true
+        body()
+        while center.heldAddCount == 0 { await Task.yield() }
+        center.isAuthorized = true
+        center.authorizationCompletion?(true)
+        center.holdsAdds = false
+        center.releaseAdds()
+        await service.settle()
+    }
+
+    func testGrantWhileTheScheduledAddIsBeingRefusedResendsIt() async throws {
+        center.isAuthorized = false
+        await grantDuringRefusedAdd { service.sync(with: engine, events: engine.start()) }
+        let entry = try XCTUnwrap(center.onlyPending, "the refused request was never re-sent")
+        XCTAssertEqual(entry.fireDate, t0 + focus)
+    }
+
+    func testGrantWhileTheImmediatePostIsBeingRefusedPostsIt() async throws {
+        engine.configuration.nudgeInterval = nil
+        center.isAuthorized = false
+        await act { $0.start() }
+        clock.advance(by: focus)
+        await grantDuringRefusedAdd { service.sync(with: engine, events: engine.reconcile()) }
+        XCTAssertEqual(center.banners.map(\.content.title), ["Focus complete"], "the missed prompt was lost")
+        XCTAssertEqual(center.onlyDelivered?.content.categoryIdentifier, "FOCUS_END")
+    }
+
     func testDenialStopsPostingAltogether() async {
         center.isAuthorized = false
         await act { $0.start() }
@@ -398,6 +465,25 @@ final class NotificationServiceTests: XCTestCase {
         await act { $0.reconcile() }
         XCTAssertEqual(center.banners.map(\.content.title), ["Focus complete"])
         XCTAssertEqual(center.onlyPending?.request.content.title, "Still focusing")
+    }
+
+    func testUnchangedSyncsDoNotPostponeTheStuckRequestFallback() async throws {
+        await act { $0.start() }
+        clock.advance(by: focus)
+        center.deliveryLag = .max
+        await reconcileUntilHandoff()
+        var syncs = 0
+        while center.banners.isEmpty, syncs < 10 * NotificationService.handoffAttempts {
+            service.sync(with: engine, events: engine.reconcile())
+            syncs += 1
+            await Task.yield()
+        }
+        XCTAssertEqual(center.banners.map(\.content.title), ["Focus complete"], "the syncs kept restarting the wait")
+        await service.settle()
+        XCTAssertEqual(center.pendingQueries, NotificationService.handoffAttempts)
+        XCTAssertEqual(center.onlyPending?.request.content.title, "Still focusing")
+        for _ in 0..<5 { await act { $0.reconcile() } }
+        XCTAssertEqual(center.pendingQueries, NotificationService.handoffAttempts, "kept polling after the fallback")
     }
 
     func testEachNudgeReplacesThePreviousNotification() async throws {
@@ -645,6 +731,68 @@ final class NotificationServiceTests: XCTestCase {
         center.deliveryLag = 0
         center.deliverDue()
         XCTAssertEqual(center.banners.map(\.content.title), ["Focus complete"])
+    }
+
+    /// Fires the focus-end trigger, then runs `body` before the delivery lands mid-cleanup.
+    private func cancelAfterTheTriggerFired(_ body: (TimerEngine) -> [TimerEvent]) async {
+        await act { $0.start() }
+        clock.advance(by: focus)
+        center.fireDue()
+        service.sync(with: engine, events: body(engine))
+        while center.deliveredQueries == 0 { await Task.yield() }
+        XCTAssertNotNil(center.inTransit.first, "removing a fired request should do nothing")
+        center.land()
+        await service.settle()
+    }
+
+    func testResetAfterTheTriggerFiredRemovesTheLateDelivery() async {
+        await cancelAfterTheTriggerFired { $0.reset() }
+        XCTAssertTrue(center.delivered.isEmpty, "the reset prompt stayed in Notification Center")
+        XCTAssertTrue(center.pending.isEmpty)
+    }
+
+    func testAnswerAfterTheTriggerFiredRemovesTheLateDelivery() async {
+        await cancelAfterTheTriggerFired { $0.startBreak() }
+        XCTAssertTrue(center.delivered.isEmpty, "the answered prompt stayed in Notification Center")
+        XCTAssertEqual(center.onlyPending?.request.content.categoryIdentifier, "BREAK_END")
+    }
+
+    func testExtendAfterTheTriggerFiredRemovesTheLateDeliveryButNotTheNewEnd() async throws {
+        await cancelAfterTheTriggerFired { $0.extend(by: 5 * 60) }
+        XCTAssertTrue(center.delivered.isEmpty)
+        let entry = try XCTUnwrap(center.onlyPending)
+        XCTAssertEqual(entry.fireDate, t0 + focus + 5 * 60)
+        clock.advance(by: 5 * 60)
+        center.deliverDue()
+        await act { $0.reconcile() }
+        XCTAssertEqual(center.onlyDelivered?.content.title, "Focus complete", "the new end was taken for the old one")
+    }
+
+    func testLateDeliveryOfAResetPromptIsNotPresentedWhileFrontmost() async {
+        center.isFrontmost = true
+        await cancelAfterTheTriggerFired { $0.reset() }
+        XCTAssertTrue(center.banners.isEmpty, "the reset prompt was presented")
+        XCTAssertTrue(center.delivered.isEmpty)
+    }
+
+    func testOnTimeDeliveryIsPresentedWhileFrontmost() async {
+        center.isFrontmost = true
+        await act { $0.start() }
+        clock.advance(by: focus)
+        center.fireDue()
+        center.land()
+        await act { $0.reconcile() }
+        XCTAssertEqual(center.banners.map(\.content.title), ["Focus complete"])
+    }
+
+    func testRetiredRequestIsWatchedForABoundedTime() async {
+        await act { $0.start() }
+        clock.advance(by: focus)
+        center.fireDue()
+        await act { $0.reset() }
+        XCTAssertEqual(center.deliveredQueries, NotificationService.handoffAttempts)
+        await act { $0.start() }
+        XCTAssertEqual(center.deliveredQueries, NotificationService.handoffAttempts, "kept watching")
     }
 
     // MARK: Action routing

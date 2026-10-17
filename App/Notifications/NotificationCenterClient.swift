@@ -28,16 +28,43 @@ struct NotificationResponse: Sendable, Equatable {
     }
 }
 
+/// One of our requests as the system delivered it, reduced to what tells it apart from another.
+struct DeliveredNotice: Sendable, Equatable {
+    /// `userInfo` key holding the request's fire date, or when an immediate one was posted.
+    static let dateKey = "date"
+
+    var identifier: String
+    var phaseID: TimeInterval?
+    var date: TimeInterval?
+
+    init(identifier: String, phaseID: TimeInterval?, date: TimeInterval?) {
+        self.identifier = identifier
+        self.phaseID = phaseID
+        self.date = date
+    }
+
+    init(_ request: UNNotificationRequest) {
+        self.init(
+            identifier: request.identifier,
+            phaseID: request.content.userInfo[NotificationResponse.phaseIDKey] as? TimeInterval,
+            date: request.content.userInfo[Self.dateKey] as? TimeInterval
+        )
+    }
+}
+
 /// The slice of `UNUserNotificationCenter` the app uses, so tests can substitute a fake.
 @MainActor
 protocol NotificationCenterClient: AnyObject {
     /// Returns once the response has been handled; the system is told it's complete only then.
     var onResponse: (@MainActor (NotificationResponse) async -> Void)? { get set }
+    /// Asked when a notification arrives while the app is frontmost.
+    var shouldPresent: (@MainActor (DeliveredNotice) -> Bool)? { get set }
     func requestAuthorization(options: UNAuthorizationOptions, completion: @escaping @MainActor @Sendable (Bool) -> Void)
     func setNotificationCategories(_ categories: Set<UNNotificationCategory>)
     /// Whether the system accepted the request. It refuses them until notifications are allowed.
     func add(_ request: UNNotificationRequest) async -> Bool
     func pendingRequestIdentifiers() async -> Set<String>
+    func deliveredNotices() async -> [DeliveredNotice]
     func removePendingNotificationRequests(withIdentifiers identifiers: [String])
     func removeDeliveredNotifications(withIdentifiers identifiers: [String])
 }
@@ -49,6 +76,7 @@ final class LiveNotificationCenter: NSObject, NotificationCenterClient, UNUserNo
     private nonisolated static let log = Logger(subsystem: "dev.krishna.pomodoro", category: "notifications")
 
     var onResponse: (@MainActor (NotificationResponse) async -> Void)?
+    var shouldPresent: (@MainActor (DeliveredNotice) -> Bool)?
     private let center: UNUserNotificationCenter
 
     init(center: UNUserNotificationCenter = .current()) {
@@ -89,6 +117,14 @@ final class LiveNotificationCenter: NSObject, NotificationCenterClient, UNUserNo
         }
     }
 
+    func deliveredNotices() async -> [DeliveredNotice] {
+        await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { notifications in
+                continuation.resume(returning: notifications.map { DeliveredNotice($0.request) })
+            }
+        }
+    }
+
     func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
@@ -112,12 +148,16 @@ final class LiveNotificationCenter: NSObject, NotificationCenterClient, UNUserNo
         await onResponse(response)
     }
 
-    /// A menu-bar app counts as frontmost while its popover is open; show banners then too.
+    /// A menu-bar app counts as frontmost while its popover is open; show banners then too,
+    /// unless the request was cancelled after its trigger fired.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        completionHandler([.banner, .list])
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        await presentation(for: DeliveredNotice(notification.request))
+    }
+
+    private func presentation(for notice: DeliveredNotice) -> UNNotificationPresentationOptions {
+        shouldPresent?(notice) ?? true ? [.banner, .list] : []
     }
 }

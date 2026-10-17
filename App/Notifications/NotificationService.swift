@@ -33,7 +33,10 @@ protocol TimerCommandHandling: AnyObject {
 ///   (it was never scheduled, or refused before authorization) or what did says the wrong thing
 ///   after reconcile. Posting delivers it, so it can't leave the boundary unannounced.
 /// - A request is removed only when its prompt no longer applies: answered, reset, stopped, or
-///   the phase changed. Then both the pending and the delivered copy go.
+///   the phase changed. Then both the pending and the delivered copy go. The system ignores the
+///   removal once the trigger has fired, so a request cancelled at its boundary is retired: for
+///   the next `handoffAttempts` checks a late delivery of it is hidden if the app is frontmost
+///   and removed from Notification Center otherwise.
 ///
 /// All center calls run in order on one task, so a later sync never overtakes an earlier one.
 @MainActor
@@ -82,7 +85,8 @@ final class NotificationService {
     static let focusExtension: TimeInterval = 5 * 60
     static let breakExtension: TimeInterval = 2 * 60
     /// How many times the pending queue is checked before a stuck due request is replaced by an
-    /// immediate post. With the default pause that is about ten seconds.
+    /// immediate post, and the delivered list for a retired one. With the default pause that is
+    /// about ten seconds. The budget belongs to the request, so syncs in between don't extend it.
     static let handoffAttempts = 40
 
     static var categories: Set<UNNotificationCategory> {
@@ -119,6 +123,13 @@ final class NotificationService {
     private struct InFlight {
         var request: Request
         var accepted: Bool
+        var checksLeft = NotificationService.handoffAttempts
+    }
+
+    /// Cancelled at or just before its boundary, so it may still be delivered.
+    private struct Retired {
+        var request: Request
+        var checksLeft = NotificationService.handoffAttempts
     }
 
     private struct Shown {
@@ -146,6 +157,7 @@ final class NotificationService {
     private var onScreen: Shown?
     /// A prompt whose immediate post was refused, so it isn't retried until authorization changes.
     private var refusedSerial: Int?
+    private var retired: Retired?
 
     private var work: Task<Void, Never>?
     private var dirty = false
@@ -162,6 +174,7 @@ final class NotificationService {
         self.pause = pause
         center.setNotificationCategories(Self.categories)
         center.onResponse = { [weak self] response in await self?.handle(response) }
+        center.shouldPresent = { [weak self] notice in self?.isRetired(notice) != true }
     }
 
     // MARK: - Engine
@@ -260,11 +273,10 @@ final class NotificationService {
         return content
     }
 
-    static func request(_ announcement: Announcement, phaseID: Date?, trigger: UNNotificationTrigger?) -> UNNotificationRequest {
+    static func request(_ announcement: Announcement, phaseID: Date?, date: Date? = nil, trigger: UNNotificationTrigger?) -> UNNotificationRequest {
         let content = content(for: announcement)
-        if let phaseID {
-            content.userInfo = [NotificationResponse.phaseIDKey: phaseID.timeIntervalSinceReferenceDate]
-        }
+        if let phaseID { content.userInfo[NotificationResponse.phaseIDKey] = phaseID.timeIntervalSinceReferenceDate }
+        if let date { content.userInfo[DeliveredNotice.dateKey] = date.timeIntervalSinceReferenceDate }
         return UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
     }
 
@@ -358,6 +370,7 @@ final class NotificationService {
                 // Otherwise nothing reached the screen, or it says the wrong thing; step 2 replaces it.
             } else {
                 // Answered, reset or stopped at the boundary.
+                retire(due)
                 center.removePendingNotificationRequests(withIdentifiers: [Self.identifier])
                 center.removeDeliveredNotifications(withIdentifiers: [Self.identifier])
                 onScreen = nil
@@ -368,11 +381,14 @@ final class NotificationService {
         // 2. Post the prompt now if nothing scheduled delivered it. This replaces any pending request.
         if let prompt, refusedSerial != prompt.serial, !isShowing(prompt) {
             inFlight = nil
-            if await post(prompt.request, trigger: nil) {
+            switch await post(prompt.request, trigger: nil) {
+            case true?:
                 onScreen = Shown(serial: prompt.serial, announcement: prompt.request.announcement)
-            } else {
+            case false?:
                 onScreen = nil
                 refusedSerial = prompt.serial
+            case nil:
+                onScreen = nil
             }
         }
 
@@ -381,15 +397,15 @@ final class NotificationService {
         if replaced?.request != next {
             if let next {
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(0.1, next.date.timeIntervalSince(clock.now)), repeats: false)
-                let accepted = await post(next, trigger: trigger)
-                inFlight = InFlight(request: next, accepted: accepted)
+                inFlight = await post(next, trigger: trigger).map { InFlight(request: next, accepted: $0) }
             } else if replaced != nil {
                 center.removePendingNotificationRequests(withIdentifiers: [Self.identifier])
                 inFlight = nil
             }
-            // The replaced request may have fired just before the call above; nothing should be showing.
-            if prompt == nil, let replaced, replaced.request.date <= clock.now + 1 {
-                center.removeDeliveredNotifications(withIdentifiers: [Self.identifier])
+            // The replaced request may have fired just before the call above.
+            if let replaced, replaced.request.date <= clock.now + 1 {
+                retire(replaced)
+                if prompt == nil { center.removeDeliveredNotifications(withIdentifiers: [Self.identifier]) }
             }
         }
 
@@ -398,6 +414,9 @@ final class NotificationService {
             center.removeDeliveredNotifications(withIdentifiers: [Self.identifier])
             onScreen = nil
         }
+
+        // 5. Catch a retired request that is delivered after all.
+        await sweepRetired()
     }
 
     private func isShowing(_ prompt: Prompt) -> Bool {
@@ -406,7 +425,8 @@ final class NotificationService {
     }
 
     private func waitUntilDelivered() async -> Handoff {
-        for _ in 0..<Self.handoffAttempts {
+        while (inFlight?.checksLeft ?? 0) > 0 {
+            inFlight?.checksLeft -= 1
             let pending = await center.pendingRequestIdentifiers()
             if !pending.contains(Self.identifier) { return .delivered }
             await pause()
@@ -415,9 +435,47 @@ final class NotificationService {
         return .timedOut
     }
 
-    private func post(_ request: Request, trigger: UNNotificationTrigger?) async -> Bool {
+    private func retire(_ replaced: InFlight) {
+        if replaced.accepted { retired = Retired(request: replaced.request) }
+    }
+
+    private func isRetired(_ notice: DeliveredNotice) -> Bool {
+        func matches(_ request: Request?) -> Bool {
+            guard let request else { return false }
+            return notice.phaseID == request.phaseID?.timeIntervalSinceReferenceDate
+                && notice.date == request.date.timeIntervalSinceReferenceDate
+        }
+        guard notice.identifier == Self.identifier, matches(retired?.request) else { return false }
+        return !matches(next) && !matches(inFlight?.request)
+    }
+
+    private func sweepRetired() async {
+        while (retired?.checksLeft ?? 0) > 0 {
+            retired?.checksLeft -= 1
+            if await center.deliveredNotices().contains(where: isRetired) {
+                center.removeDeliveredNotifications(withIdentifiers: [Self.identifier])
+                retired = nil
+                // It replaced whatever was showing.
+                if onScreen != nil {
+                    onScreen = nil
+                    dirty = true
+                }
+                return
+            }
+            await pause()
+            if dirty { return }
+        }
+        retired = nil
+    }
+
+    /// `nil` when the request was refused but authorization was granted meanwhile, so it should be
+    /// sent again rather than recorded as refused.
+    private func post(_ request: Request, trigger: UNNotificationTrigger?) async -> Bool? {
         guard authorization != .denied else { return false }
-        return await center.add(Self.request(request.announcement, phaseID: request.phaseID, trigger: trigger))
+        let before = authorization
+        let accepted = await center.add(Self.request(request.announcement, phaseID: request.phaseID, date: request.date, trigger: trigger))
+        if !accepted, before != .granted, authorization == .granted { return nil }
+        return accepted
     }
 
     private func requestAuthorizationIfNeeded() {
@@ -427,7 +485,8 @@ final class NotificationService {
             guard let self else { return }
             authorization = granted ? .granted : .denied
             guard granted else { return }
-            // Requests refused before the grant are sent again, including a prompt whose boundary has passed.
+            // Requests refused before the grant are sent again, including a prompt whose boundary has
+            // passed. One whose refusal is still on its way is handled by `post`.
             refusedSerial = nil
             if inFlight?.accepted == false { inFlight = nil }
             kick()
