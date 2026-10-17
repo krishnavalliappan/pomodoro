@@ -1337,7 +1337,7 @@ struct TimerEngineAssignTaskTests {
         let (engine, _) = makeEngine()
         #expect(engine.assignTask(UUID()).isEmpty)
         #expect(engine.taskID == nil)
-        #expect(engine.state == TimerState())
+        #expect(engine.phase == .idle)
     }
 
     @Test func assigningDuringABreakCarriesIntoTheNextFocus() throws {
