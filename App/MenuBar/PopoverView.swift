@@ -129,7 +129,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var secondaryControls: some View {
-        if snapshot.status == .overtime {
+        if case .overtime = snapshot.status {
             IconButton(symbol: "pause.fill", help: "Pause", action: model.pause)
         } else {
             IconButton(text: "+5", help: "Add 5 minutes") { model.extend(minutes: 5) }
