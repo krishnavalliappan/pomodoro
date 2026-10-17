@@ -131,6 +131,8 @@ final class AppModel {
         self.today = TodaySummary(day: database.day(containing: clock.now))
         tasks.ensureLoaded(engine.taskID)
         sound.settings = settings.sounds
+        sound.isMuted = settings.isMuted
+        self.ambient.setMuted(settings.isMuted)
         // Before the launch reconcile, whose update may resume a restored focus's sounds.
         self.ambient.configure(mix: settings.ambient, policy: settings.ambientPolicy)
         // Every focus picks its profile here, including one auto-started inside a catch-up.
@@ -188,6 +190,9 @@ final class AppModel {
     var completedToday: Int { today.completedPomodoros }
 
     var isRefreshingEverySecond: Bool { refreshTimer != nil }
+
+    /// The floating card shows from a session's start until the timer stops.
+    var showsFloatingTimer: Bool { settings.showsFloatingTimer && phase != .idle }
 
     // MARK: - Timer actions
 
@@ -366,6 +371,8 @@ final class AppModel {
         settings = updated
         save(updated)
         sound.settings = updated.sounds
+        sound.isMuted = updated.isMuted
+        ambient.setMuted(updated.isMuted)
         ambient.configure(mix: updated.ambient, policy: updated.ambientPolicy)
         // A new nudge interval or auto-start moves the boundary, so this takes the same path as an action.
         handle([])
@@ -557,7 +564,7 @@ final class AppModel {
     }
 
     private var wantsSeconds: Bool {
-        isPopoverVisible || settings.menuBarDisplay.showsSeconds
+        isPopoverVisible || settings.menuBarDisplay.showsSeconds || showsFloatingTimer
     }
 
     private func scheduleRefresh() {

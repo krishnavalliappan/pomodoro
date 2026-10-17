@@ -69,6 +69,10 @@ public struct AppSettings: Hashable, Sendable {
     public var ambientPolicy: AmbientPolicy
     public var menuBarDisplay: MenuBarDisplayMode
     public var launchAtLogin: Bool
+    /// Silences every sound the app makes, ambient included, until switched back off.
+    public var isMuted: Bool
+    /// The small card that floats over other windows while a session runs.
+    public var showsFloatingTimer: Bool
     /// 1 = Sunday … 7 = Saturday, matching `Calendar.firstWeekday`. `nil` follows the system.
     public var firstWeekday: Int? {
         didSet { firstWeekday = Self.normalizedWeekday(firstWeekday) }
@@ -82,6 +86,8 @@ public struct AppSettings: Hashable, Sendable {
         ambientPolicy: AmbientPolicy = AmbientPolicy(),
         menuBarDisplay: MenuBarDisplayMode = .time,
         launchAtLogin: Bool = false,
+        isMuted: Bool = false,
+        showsFloatingTimer: Bool = true,
         firstWeekday: Int? = nil
     ) {
         var seen = Set<Preset.ID>()
@@ -95,6 +101,8 @@ public struct AppSettings: Hashable, Sendable {
         self.ambientPolicy = ambientPolicy
         self.menuBarDisplay = menuBarDisplay
         self.launchAtLogin = launchAtLogin
+        self.isMuted = isMuted
+        self.showsFloatingTimer = showsFloatingTimer
         self.firstWeekday = Self.normalizedWeekday(firstWeekday)
     }
 
@@ -177,7 +185,8 @@ extension AppSettings {
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case version, presets, defaultPresetID, sounds, ambient, ambientPolicy, menuBarDisplay, launchAtLogin, firstWeekday
+        case version, presets, defaultPresetID, sounds, ambient, ambientPolicy, menuBarDisplay, launchAtLogin, isMuted, showsFloatingTimer
+        case firstWeekday
     }
 
     public init(from decoder: Decoder) throws {
@@ -193,6 +202,8 @@ extension AppSettings: Codable {
             ambientPolicy: c.lenient(AmbientPolicy.self, .ambientPolicy) ?? base.ambientPolicy,
             menuBarDisplay: c.lenient(MenuBarDisplayMode.self, .menuBarDisplay) ?? base.menuBarDisplay,
             launchAtLogin: c.lenient(Bool.self, .launchAtLogin) ?? base.launchAtLogin,
+            isMuted: c.lenient(Bool.self, .isMuted) ?? base.isMuted,
+            showsFloatingTimer: c.lenient(Bool.self, .showsFloatingTimer) ?? base.showsFloatingTimer,
             firstWeekday: c.lenient(Int.self, .firstWeekday)
         )
     }
@@ -207,6 +218,8 @@ extension AppSettings: Codable {
         try c.encode(ambientPolicy, forKey: .ambientPolicy)
         try c.encode(menuBarDisplay, forKey: .menuBarDisplay)
         try c.encode(launchAtLogin, forKey: .launchAtLogin)
+        try c.encode(isMuted, forKey: .isMuted)
+        try c.encode(showsFloatingTimer, forKey: .showsFloatingTimer)
         try c.encode(firstWeekday, forKey: .firstWeekday)
     }
 

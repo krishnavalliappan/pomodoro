@@ -61,6 +61,16 @@ struct PopoverTimerTab: View {
                     .help("Ambient sounds playing")
                     .accessibilityLabel("Ambient sounds playing")
             }
+            if model.isMuted {
+                Button(action: model.toggleMute) {
+                    Image(systemName: "speaker.slash.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Sounds are muted. Click to unmute.")
+                .accessibilityLabel("Unmute sounds")
+            }
             Spacer(minLength: 8)
             RoundDots(cycle: model.longBreakEvery, stage: stage)
         }

@@ -15,6 +15,12 @@ struct GeneralSettingsView: View {
                 loginStatus
             }
             Section {
+                Toggle(isOn: model.binding(\.showsFloatingTimer)) {
+                    Text("Show floating timer")
+                    Text("A small card over your windows while a session runs.")
+                }
+            }
+            Section {
                 Picker("First day of week", selection: model.binding(\.firstWeekday)) {
                     Text("System (\(weekdayName(calendar.firstWeekday)))").tag(Int?.none)
                     Divider()

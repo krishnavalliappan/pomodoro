@@ -89,6 +89,8 @@ final class ModelHarness {
         scheduler = FakeScheduler(clock: clock)
         var settings = AppSettings.default
         settings.menuBarDisplay = display
+        // Its tick would hide what the refresh tests check; the floating timer's tests turn it on.
+        settings.showsFloatingTimer = false
         settingsStore = InMemorySettingsStore(settings)
         database = try AppDatabase.inMemory(calendar: Self.utc)
         players = Dictionary(uniqueKeysWithValues: SoundID.allCases.filter { $0 != .none }.map { ($0, RecordingSoundPlayer()) })
@@ -120,6 +122,13 @@ final class ModelHarness {
         var preset = settings.defaultPreset
         change(&preset.profile)
         try? settings.updatePreset(preset)
+        try? settingsStore.save(settings)
+    }
+
+    /// Edits the stored settings before a model loads them.
+    func updateSettings(_ change: (inout AppSettings) -> Void) {
+        var settings = settingsStore.load()
+        change(&settings)
         try? settingsStore.save(settings)
     }
 
