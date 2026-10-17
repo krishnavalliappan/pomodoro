@@ -28,7 +28,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             openPlanner: { [weak self] in self?.open(.planner) },
             openSettings: { [weak self] in self?.open(.settings) }
         )
-        let host = NSHostingController(rootView: PopoverView(model: model, actions: actions))
+        let host = PopoverHostingController(rootView: PopoverView(model: model, actions: actions))
         // The popover follows the view's height as the task list folds, empties or fills.
         host.sizingOptions = [.preferredContentSize]
         popover.contentViewController = host
@@ -115,5 +115,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         model.setPopoverVisible(false)
+    }
+}
+
+/// Reports a whole-point size, so the live popover is exactly as tall as its snapshots.
+private final class PopoverHostingController: NSHostingController<PopoverView> {
+    override var preferredContentSize: NSSize {
+        get { PopoverView.integralSize(super.preferredContentSize) }
+        set { super.preferredContentSize = newValue }
     }
 }

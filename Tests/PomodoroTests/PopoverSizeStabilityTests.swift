@@ -22,8 +22,7 @@ final class PopoverSizeStabilityTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        var sizes: [CGSize] = []
-        var raw: [String] = []
+        var sizes: [String] = []
         for _ in 0..<passes {
             let h = try ModelHarness(display: .time)
             try h.seedCompletedSessions(2)
@@ -31,11 +30,11 @@ final class PopoverSizeStabilityTests: XCTestCase {
             let model = h.makeModel()
             model.setPopoverVisible(true)
             let view = PopoverView(model: model, actions: PopoverActions(quit: {}), defaults: PopoverViewSnapshotTests.freshDefaults())
-            raw.append(String(format: "%.6f", NSHostingView(rootView: view).fittingSize.height))
-            sizes.append(Snapshot.renderedPixelSize(view, size: Snapshot.fittedSize(of: view)))
+            for (appearance, scheme) in [(NSAppearance.Name.aqua, ColorScheme.light), (.darkAqua, .dark)] {
+                let size = Snapshot.renderedPixelSize(view, appearance: appearance, scheme: scheme)
+                sizes.append("\(Int(size.width))x\(Int(size.height))")
+            }
         }
-        print("PopoverSizeStability raw fitting heights:", raw.joined(separator: " "))
-        let distinct = Set(sizes.map { "\(Int($0.width))x\(Int($0.height))" })
-        XCTAssertEqual(distinct.count, 1, "Popover rendered at \(distinct.sorted()) across \(passes) passes; raw \(raw)", file: file, line: line)
+        XCTAssertEqual(Set(sizes).count, 1, "Popover rendered at \(Set(sizes).sorted()) across \(passes) passes: \(sizes)", file: file, line: line)
     }
 }

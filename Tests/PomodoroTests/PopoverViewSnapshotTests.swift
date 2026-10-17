@@ -165,9 +165,9 @@ final class PopoverViewSnapshotTests: XCTestCase {
         // Opening the popover refreshes the readout, as it does in the app.
         model.setPopoverVisible(true)
         let view = PopoverView(model: model, actions: PopoverActions(quit: {}), quickAddText: quickAddText, defaults: defaults)
+        // No size: the popover takes the view's own height, as `sizingOptions` makes it do in the app.
         Snapshot.assertLightAndDark(
             view,
-            size: Snapshot.fittedSize(of: view),
             name: "PopoverView",
             variant: variant,
             file: file,

@@ -17,10 +17,11 @@ enum Snapshot {
     }
 
     /// Renders `view` in light and dark, as `<name>.<variant>.light.png` and `….dark.png`.
+    /// Without a `size`, the view is content-sized: it takes the height it fits, as the popover does.
     @MainActor
     static func assertLightAndDark(
         _ view: some View,
-        size: CGSize,
+        size: CGSize? = nil,
         name: String,
         variant: String? = nil,
         inWindow: Bool = false,
@@ -65,23 +66,36 @@ enum Snapshot {
     }
 
     @MainActor
-    static func makeHost(_ view: some View, appearance: NSAppearance.Name, scheme: ColorScheme, size: CGSize) -> NSView {
+    static func makeHost(_ view: some View, appearance: NSAppearance.Name, scheme: ColorScheme, size: CGSize?) -> NSView {
         let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))
         host.appearance = NSAppearance(named: appearance)
-        host.frame = CGRect(origin: .zero, size: size)
+        if let size {
+            host.frame = CGRect(origin: .zero, size: size)
+        } else {
+            host.frame = CGRect(origin: .zero, size: fittedSize(of: host))
+        }
         return host
     }
 
-    /// The frame a content-sized popover gets, measured the way the app's popover sizes itself.
+    /// Measured on the host that renders, not a throwaway one, and re-measured until two passes
+    /// agree: a cold first layout can report a whole point more than the settled one (#38).
     @MainActor
-    static func fittedSize(of view: some View) -> CGSize {
-        CGSize(width: PopoverView.width, height: NSHostingView(rootView: view).fittingSize.height.rounded(.up))
+    static func fittedSize(of host: NSView) -> CGSize {
+        var size = CGSize.zero
+        for _ in 0..<5 {
+            let next = PopoverView.integralSize(host.fittingSize)
+            if next == size { break }
+            size = next
+            host.frame.size = size
+            host.layoutSubtreeIfNeeded()
+        }
+        return size
     }
 
-    /// The pixel size `assertLightAndDark` would write for `view` at `size`.
+    /// The pixel size `assertLightAndDark` writes for `view` when it's content-sized.
     @MainActor
-    static func renderedPixelSize(_ view: some View, size: CGSize) -> CGSize {
-        let host = makeHost(view, appearance: .aqua, scheme: .light, size: size)
+    static func renderedPixelSize(_ view: some View, appearance: NSAppearance.Name, scheme: ColorScheme) -> CGSize {
+        let host = makeHost(view, appearance: appearance, scheme: scheme, size: nil)
         host.layoutSubtreeIfNeeded()
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return .zero }
         host.cacheDisplay(in: host.bounds, to: rep)

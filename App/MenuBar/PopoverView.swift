@@ -14,6 +14,11 @@ struct PopoverActions {
 struct PopoverView: View {
     static let width: CGFloat = 320
 
+    /// Whole points, so the popover and its snapshots agree on one height on any display scale.
+    static func integralSize(_ fitting: CGSize) -> CGSize {
+        CGSize(width: fitting.width.rounded(.up), height: fitting.height.rounded(.up))
+    }
+
     let model: AppModel
     var actions = PopoverActions()
     /// Pre-filled quick-add text, for snapshots of the preview.
