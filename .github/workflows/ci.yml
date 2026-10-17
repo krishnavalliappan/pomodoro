@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XCODE_VERSION: "26.6"
+  DERIVED_DATA: build/DerivedData
+  SNAPSHOT_ARTIFACTS: ${{ github.workspace }}/build/snapshot-failures
+
+jobs:
+  build-test:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Tool versions
+        run: |
+          xcodebuild -version
+          swift --version
+          sw_vers
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/SourcePackages
+            Packages/PomodoroCore/.build
+          key: spm-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('project.yml', 'Packages/**/Package.swift', 'Packages/**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+
+      - name: Test PomodoroCore
+        run: swift test --package-path Packages/PomodoroCore
+
+      - name: Build and test app
+        run: |
+          mkdir -p "$SNAPSHOT_ARTIFACTS"
+          set -o pipefail
+          TEST_RUNNER_SNAPSHOT_ARTIFACTS="$SNAPSHOT_ARTIFACTS" \
+          xcodebuild \
+            -project Pomodoro.xcodeproj \
+            -scheme Pomodoro \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath build/SourcePackages \
+            -resultBundlePath build/Pomodoro.xcresult \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            build test
+
+      - name: Verify LSUIElement in built Info.plist
+        run: |
+          PLIST="$DERIVED_DATA/Build/Products/Debug/Pomodoro.app/Contents/Info.plist"
+          value=$(plutil -extract LSUIElement raw "$PLIST")
+          echo "LSUIElement=$value"
+          test "$value" = "true" || test "$value" = "1"
+
+      - name: Collect snapshots
+        if: always()
+        run: |
+          mkdir -p build/snapshots/reference build/snapshots/failures
+          cp -R Snapshots/. build/snapshots/reference/ 2>/dev/null || true
+          cp -R "$SNAPSHOT_ARTIFACTS"/. build/snapshots/failures/ 2>/dev/null || true
+          find build/snapshots -type f | sort
+
+      - name: Upload snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshots
+          path: build/snapshots
+          if-no-files-found: warn
+
+      - name: Upload xcresult
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult
+          path: build/Pomodoro.xcresult
+          if-no-files-found: warn
+
+      - name: Build Release app
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Pomodoro.xcodeproj \
+            -scheme Pomodoro \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath build/SourcePackages \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            build
+          ditto -c -k --keepParent "$DERIVED_DATA/Build/Products/Release/Pomodoro.app" build/Pomodoro.app.zip
+
+      - name: Upload app
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pomodoro.app
+          path: build/Pomodoro.app.zip

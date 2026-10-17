@@ -1,0 +1,14 @@
+# XcodeGen output
+*.xcodeproj
+*.xcworkspace
+
+# Build products
+DerivedData/
+build/
+.build/
+.swiftpm/
+*.xcresult
+
+# macOS
+.DS_Store
+xcuserdata/
