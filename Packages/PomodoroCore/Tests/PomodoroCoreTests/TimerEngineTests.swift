@@ -1239,7 +1239,7 @@ struct TimerEngineReentryTests {
         engine.onEvent = { delivered.append($0) }
         let events = engine.reconcile()
         #expect(asked == 1)
-        #expect(nested.allSatisfy(\.isEmpty))
+        #expect(nested.allSatisfy { $0.isEmpty })
         #expect(kinds(events) == ["breakEnded", "started:focus"])
         #expect(kinds(delivered) == kinds(events))
         #expect(engine.phase == .focus)
@@ -1261,7 +1261,7 @@ struct TimerEngineReentryTests {
         let events = engine.reconcile()
         #expect(asked == 1)
         #expect(nested.count == 4)
-        #expect(nested.allSatisfy(\.isEmpty))
+        #expect(nested.allSatisfy { $0.isEmpty })
         #expect(kinds(events) == ["breakEnded", "started:focus"])
         #expect(engine.phase == .focus)
         #expect(engine.state.plannedDuration == 40 * 60, "the provider's result wins over its ignored setter call")
