@@ -87,7 +87,7 @@ final class NotificationService {
     /// How many times the pending queue is checked before a stuck due request is replaced by an
     /// immediate post, and the delivered list for a retired one. With the default pause that is
     /// about ten seconds. The budget belongs to the request, so syncs in between don't extend it.
-    static let handoffAttempts = 40
+    nonisolated static let handoffAttempts = 40
 
     static var categories: Set<UNNotificationCategory> {
         func category(_ id: String, _ actions: [Action]) -> UNNotificationCategory {
