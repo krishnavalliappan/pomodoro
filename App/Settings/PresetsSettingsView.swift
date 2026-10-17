@@ -84,15 +84,17 @@ struct PresetsSettingsView: View {
             .help(presets.count <= 1 ? "You need at least one preset" : "Delete the selected preset")
             .accessibilityLabel("Delete preset")
             Spacer()
-            Button("Make Default") {
-                if let selection { makeDefault(selection) }
+            HStack(spacing: 14) {
+                Button("Make Default") {
+                    if let selection { makeDefault(selection) }
+                }
+                .disabled(selected == nil || selection == model.settings.defaultPresetID)
+                Button("Edit…") {
+                    if let selection { edit(selection) }
+                }
+                .disabled(selected == nil)
             }
-            .disabled(selected == nil || selection == model.settings.defaultPresetID)
-            Button("Edit…") {
-                if let selection { edit(selection) }
-            }
-            .disabled(selected == nil)
-            .padding(.trailing, 4)
+            .padding(.trailing, 8)
         }
         .buttonStyle(.borderless)
         .padding(.vertical, 2)
@@ -177,7 +179,7 @@ struct PresetDraft: Identifiable, Equatable {
 }
 
 struct PresetEditor: View {
-    static let size = CGSize(width: 340, height: 250)
+    static let size = CGSize(width: 340, height: 310)
 
     @State var draft: PresetDraft
     var onCancel: () -> Void

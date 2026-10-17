@@ -34,12 +34,12 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var size: CGSize {
         let height: CGFloat =
             switch self {
-            case .timer: 470
+            case .timer: 590
             case .presets: 330
             case .sounds: 300
-            case .menuBar: 250
-            case .shortcuts: 260
-            case .general: 250
+            case .menuBar: 170
+            case .shortcuts: 240
+            case .general: 260
             }
         return CGSize(width: Self.width, height: height)
     }

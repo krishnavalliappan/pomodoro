@@ -77,6 +77,7 @@ final class SettingsSnapshotTests: XCTestCase {
             size: pane.size,
             name: "SettingsView",
             variant: variant ?? pane.rawValue,
+            inWindow: pane == .presets,
             file: file,
             line: line
         )

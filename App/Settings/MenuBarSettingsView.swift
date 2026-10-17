@@ -15,6 +15,7 @@ struct MenuBarSettingsView: View {
                 .pickerStyle(.radioGroup)
             } footer: {
                 MenuBarPreview(mode: model.settings.menuBarDisplay)
+                    .foregroundStyle(.primary)
                     .padding(.top, 8)
             }
         }
