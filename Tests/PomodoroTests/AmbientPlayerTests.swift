@@ -17,6 +17,7 @@ final class FakeAmbientEngine: AmbientAudioEngine {
     var onConfigurationChange: (@MainActor () -> Void)?
     var failsToStart = false
     private(set) var isRunning = false
+    private(set) var isWaitingForOutput = false
     private(set) var starts = 0
     private(set) var stops = 0
     private(set) var volumes: [AmbientSound.ID: Float] = [:]
@@ -26,13 +27,18 @@ final class FakeAmbientEngine: AmbientAudioEngine {
     var voices: Set<AmbientSound.ID> { Set(volumes.keys) }
 
     func start() throws {
-        if failsToStart { throw StartFailure() }
+        if failsToStart {
+            isWaitingForOutput = true
+            throw StartFailure()
+        }
+        isWaitingForOutput = false
         isRunning = true
         starts += 1
     }
 
     func stop() {
         isRunning = false
+        isWaitingForOutput = false
         stops += 1
         volumes = [:]
         ramps = [:]

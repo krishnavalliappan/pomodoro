@@ -132,7 +132,7 @@ final class AmbientPlayer {
             do {
                 try engine.start()
             } catch {
-                // No output device, say. A configuration change brings us back.
+                // No output device, say. The engine calls back once one appears.
                 Self.log.error("starting ambient audio failed: \(String(describing: error), privacy: .public)")
                 return
             }
@@ -170,7 +170,7 @@ final class AmbientPlayer {
     }
 
     private func stopIfSilent() {
-        if targets.isEmpty, engine.isRunning { engine.stop() }
+        if targets.isEmpty, engine.isRunning || engine.isWaitingForOutput { engine.stop() }
     }
 
     /// The engine dropped its voices; bring back whatever should be playing.

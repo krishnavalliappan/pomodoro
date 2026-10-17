@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 import Foundation
 import PomodoroCore
 import os
@@ -8,12 +9,14 @@ import os
 @MainActor
 protocol AmbientAudioEngine: AnyObject {
     var isRunning: Bool { get }
+    /// A start found no usable output, and the engine is watching for one; `stop()` gives up.
+    var isWaitingForOutput: Bool { get }
     /// Called after the output device or its format changed. The engine has stopped and dropped
     /// every voice by then; the player starts again from scratch.
     var onConfigurationChange: (@MainActor () -> Void)? { get set }
 
     func start() throws
-    /// Stops output and drops every voice, so nothing is left running.
+    /// Stops output, drops every voice and stops waiting for output, so nothing is left running.
     func stop()
     /// Starts looping the sound, silent until a ramp raises it.
     func addVoice(_ sound: AmbientSound) throws
@@ -35,15 +38,31 @@ final class AVAmbientEngine: AmbientAudioEngine {
     static let rampStep: Duration = .milliseconds(15)
 
     var onConfigurationChange: (@MainActor () -> Void)?
+    private(set) var isWaitingForOutput = false
 
     private let bundle: Bundle
+    private let outputMonitor: any AudioOutputMonitor
+    private let hasOutput: @MainActor (AVAudioEngine) -> Bool
     /// Made on start and released on stop, so an unused ambient feature costs nothing.
     private var engine: AVAudioEngine?
     private var observer: (any NSObjectProtocol)?
     private var voices: [AmbientSound.ID: Voice] = [:]
 
-    init(bundle: Bundle = .main) {
+    init(
+        bundle: Bundle = .main,
+        outputMonitor: any AudioOutputMonitor = DefaultOutputMonitor(),
+        hasOutput: @escaping @MainActor (AVAudioEngine) -> Bool = AVAmbientEngine.hasUsableOutput
+    ) {
         self.bundle = bundle
+        self.outputMonitor = outputMonitor
+        self.hasOutput = hasOutput
+    }
+
+    /// AVAudioEngine raises an uncatchable exception, rather than throwing, when it starts
+    /// without an output to render to.
+    static func hasUsableOutput(_ engine: AVAudioEngine) -> Bool {
+        let output = engine.outputNode.outputFormat(forBus: 0)
+        return output.channelCount > 0 && output.sampleRate > 0
     }
 
     var isRunning: Bool { engine?.isRunning ?? false }
@@ -51,19 +70,18 @@ final class AVAmbientEngine: AmbientAudioEngine {
     func start() throws {
         let engine = self.engine ?? makeEngine()
         guard !engine.isRunning else { return }
-        // AVAudioEngine raises an uncatchable exception, rather than throwing, when it has no
-        // usable output or nothing wired to it, and voices only arrive after it has started.
-        let output = engine.outputNode.outputFormat(forBus: 0)
-        guard output.channelCount > 0, output.sampleRate > 0 else {
-            stop()
+        guard hasOutput(engine) else {
+            waitForOutput()
             throw AmbientEngineError.noOutputDevice
         }
+        // Voices arrive after the start; without the mixer wired to the output, `prepare()`
+        // raises an exception too.
         _ = engine.mainMixerNode
         engine.prepare()
         do {
             try engine.start()
         } catch {
-            stop()
+            waitForOutput()
             throw error
         }
     }
@@ -74,6 +92,20 @@ final class AVAmbientEngine: AmbientAudioEngine {
         engine = nil
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
+        outputMonitor.stop()
+        isWaitingForOutput = false
+    }
+
+    /// The engine and its configuration observer are gone with the failed start, so an output
+    /// coming back is heard from the system instead; the player then starts again.
+    private func waitForOutput() {
+        stop()
+        isWaitingForOutput = true
+        outputMonitor.start { [weak self] in
+            guard let self, isWaitingForOutput else { return }
+            stop()
+            onConfigurationChange?()
+        }
     }
 
     func addVoice(_ sound: AmbientSound) throws {
@@ -131,15 +163,19 @@ final class AVAmbientEngine: AmbientAudioEngine {
     private func makeEngine() -> AVAudioEngine {
         let engine = AVAudioEngine()
         self.engine = engine
+        let id = ObjectIdentifier(engine)
         observer = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.configurationChanged() }
+            // Releasing an engine inside its own configuration notification can deadlock, so the
+            // restart waits a turn; by then the engine may already have been replaced.
+            Task { @MainActor in self?.configurationChanged(engine: id) }
         }
         return engine
     }
 
-    private func configurationChanged() {
+    private func configurationChanged(engine id: ObjectIdentifier) {
+        guard let engine, ObjectIdentifier(engine) == id else { return }
         Self.log.info("audio configuration changed, restarting ambient sounds")
         stop()
         onConfigurationChange?()
@@ -163,15 +199,16 @@ final class AVAmbientEngine: AmbientAudioEngine {
 ///
 /// Streaming, not a looping PCM buffer: a two-minute stereo loop decodes to over 40 MB.
 ///
-/// `@unchecked Sendable` because the node calls back on its own thread; `lock` guards `isStopped`,
-/// and scheduling on a player node is thread-safe.
-private final class SeamlessLoop: @unchecked Sendable {
+/// Main-actor bound like every other call on the node: AVFAudio reports a consumed pass on its own
+/// queue, and scheduling from there while the main actor plays, stops or detaches the node can
+/// deadlock inside AVFAudio. The shortest loop is several seconds, so the hop costs nothing.
+@MainActor
+final class SeamlessLoop {
     /// Two handles, alternated, so no pass shares a read position with the one queued behind it.
     private let files: [AVAudioFile]
-    private let lock = NSLock()
     private var isStopped = false
-    private var passes = 0
     private weak var node: AVAudioPlayerNode?
+    private(set) var passesQueued = 0
 
     init(url: URL) throws {
         files = [try AVAudioFile(forReading: url), try AVAudioFile(forReading: url)]
@@ -185,22 +222,61 @@ private final class SeamlessLoop: @unchecked Sendable {
         queueNext()
     }
 
+    /// Before the node stops: stopping reports every queued pass as consumed.
     func stop() {
-        lock.withLock { isStopped = true }
+        isStopped = true
     }
 
     private func queueNext() {
-        let file: AVAudioFile? = lock.withLock {
-            guard !isStopped else { return nil }
-            passes += 1
-            return files[passes % files.count]
-        }
-        guard let file, let node else { return }
+        guard !isStopped, let node, node.engine != nil else { return }
+        passesQueued += 1
+        let file = files[passesQueued % files.count]
         node.scheduleSegment(
             file, startingFrame: 0, frameCount: AVAudioFrameCount(file.length), at: nil,
             completionCallbackType: .dataConsumed
         ) { [weak self] _ in
-            self?.queueNext()
+            Task { @MainActor in self?.queueNext() }
         }
+    }
+}
+
+/// Reports changes to the system's audio outputs, so a start that found none can try again.
+@MainActor
+protocol AudioOutputMonitor: AnyObject {
+    /// Calls `onChange` on the main actor, a turn after each change, until `stop()`.
+    func start(_ onChange: @escaping @MainActor () -> Void)
+    func stop()
+}
+
+/// Listens for the default output device or the device list changing, e.g. headphones plugged in.
+@MainActor
+final class DefaultOutputMonitor: AudioOutputMonitor {
+    private static let selectors = [kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices]
+    private var listener: AudioObjectPropertyListenerBlock?
+
+    func start(_ onChange: @escaping @MainActor () -> Void) {
+        guard listener == nil else { return }
+        // Delivered on main, then deferred a turn, so the handler may remove this listener.
+        let block: AudioObjectPropertyListenerBlock = { _, _ in
+            Task { @MainActor in onChange() }
+        }
+        for selector in Self.selectors {
+            var address = Self.address(selector)
+            AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, block)
+        }
+        listener = block
+    }
+
+    func stop() {
+        guard let listener else { return }
+        for selector in Self.selectors {
+            var address = Self.address(selector)
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, listener)
+        }
+        self.listener = nil
+    }
+
+    private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     }
 }
