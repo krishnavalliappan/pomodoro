@@ -14,6 +14,7 @@ App/                      SwiftUI app target (thin, menu-bar only, LSUIElement)
 Packages/PomodoroCore/    pure-Swift logic package (no SwiftUI/AppKit) + its tests
 Tests/PomodoroTests/      app test target (snapshot tests)
 Snapshots/                snapshot reference PNGs
+scripts/gen_sounds.py     regenerates App/Resources/Sounds/*.wav (stdlib Python, deterministic)
 project.yml               XcodeGen spec — the .xcodeproj is generated, never committed
 ```
 

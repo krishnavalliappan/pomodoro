@@ -28,7 +28,13 @@ targets:
     type: application
     platform: macOS
     sources:
-      - App
+      - path: App
+        excludes:
+          - "Resources/Sounds/**"
+      # Folder reference keeps the WAVs under Sounds/ in the bundle. Regenerate with scripts/gen_sounds.py.
+      - path: App/Resources/Sounds
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: PomodoroCore
     settings:
