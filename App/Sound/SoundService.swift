@@ -1,27 +1,87 @@
 import AVFoundation
 import Foundation
+import PomodoroCore
+import os
 
-// TODO(#4): Replace with PomodoroCore's `SoundID` once #4 merges; the cases match one-to-one.
-enum AppSound: String, CaseIterable, Sendable {
-    case chimeFocusEnd, chimeBreakEnd, start, tick, bowl, none
+/// Moments in a session that can make a sound, one per `SoundSettings` field.
+enum SoundEvent: CaseIterable, Sendable {
+    case focusEnd, breakEnd, start, tick
+
+    var setting: WritableKeyPath<SoundSettings, SoundID> {
+        switch self {
+        case .focusEnd: \.focusEnd
+        case .breakEnd: \.breakEnd
+        case .start: \.start
+        case .tick: \.tick
+        }
+    }
 }
 
-/// Moments in a session that can make a sound. Each one maps to a user-chosen `AppSound`.
-enum SoundEvent: CaseIterable, Sendable {
-    case focusEnd, breakEnd, start
+@MainActor
+protocol SoundPlayer: AnyObject {
+    var volume: Float { get set }
+    /// Restarts from the beginning. Returns `false` if playback could not start.
+    @discardableResult func play() -> Bool
+}
+
+/// The tick's scheduling time source, injectable so tests can jump time without real sleeps.
+@MainActor
+protocol TickClock: Sendable {
+    var now: ContinuousClock.Instant { get }
+    func sleep(until deadline: ContinuousClock.Instant) async throws
+}
+
+struct SystemTickClock: TickClock {
+    private let clock = ContinuousClock()
+    var now: ContinuousClock.Instant { clock.now }
+    func sleep(until deadline: ContinuousClock.Instant) async throws {
+        try await clock.sleep(until: deadline, tolerance: .milliseconds(10))
+    }
+}
+
+@MainActor
+final class AVSoundPlayer: SoundPlayer {
+    private static let log = Logger(subsystem: "dev.krishna.pomodoro", category: "sound")
+
+    private let player: AVAudioPlayer
+    private let name: String
+
+    init?(contentsOf url: URL) {
+        guard let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
+        self.player = player
+        self.name = url.lastPathComponent
+        // Primes the first play only; AVAudioPlayer undoes preparation once playback stops.
+        if !player.prepareToPlay() {
+            Self.log.error("prepareToPlay failed for \(self.name, privacy: .public)")
+        }
+    }
+
+    var volume: Float {
+        get { player.volume }
+        set { player.volume = newValue }
+    }
+
+    func play() -> Bool {
+        if player.isPlaying {
+            player.stop()
+        }
+        player.currentTime = 0
+        let started = player.play()
+        if !started {
+            Self.log.error("play failed for \(self.name, privacy: .public)")
+        }
+        return started
+    }
 }
 
 @MainActor
 final class SoundService {
     static let resourceSubdirectory = "Sounds"
+    static let tickInterval: Duration = .seconds(1)
+    /// A beat later than this (sleep, a main-actor stall) is dropped rather than played late.
+    static let lateBeatTolerance: Duration = .milliseconds(250)
 
-    static let defaultChoices: [SoundEvent: AppSound] = [
-        .focusEnd: .chimeFocusEnd,
-        .breakEnd: .chimeBreakEnd,
-        .start: .start,
-    ]
-
-    private static let fileNames: [AppSound: String] = [
+    private static let fileNames: [SoundID: String] = [
         .chimeFocusEnd: "chime_focus_end",
         .chimeBreakEnd: "chime_break_end",
         .start: "start",
@@ -29,84 +89,72 @@ final class SoundService {
         .bowl: "bowl",
     ]
 
-    static func url(for sound: AppSound, in bundle: Bundle = .main) -> URL? {
+    static func url(for sound: SoundID, in bundle: Bundle = .main) -> URL? {
         guard let name = fileNames[sound] else { return nil }
         return bundle.url(forResource: name, withExtension: "wav", subdirectory: resourceSubdirectory)
     }
 
-    var masterVolume: Float {
+    /// The tick sounds only between `startTicking()` and `stopTicking()`, and never while
+    /// `settings.tick` is `.none` (the default).
+    var settings: SoundSettings {
         didSet {
-            masterVolume = min(max(masterVolume, 0), 1)
-            for player in players.values { player.volume = masterVolume }
+            if settings.volume != oldValue.volume { applyVolume() }
+            if settings.tick == .none { stopTicking() }
         }
     }
 
-    var choices: [SoundEvent: AppSound]
-
-    /// Off by default; even when on, it only sounds between `startTicking()` and `stopTicking()`.
-    var tickEnabled: Bool {
-        didSet { if !tickEnabled { stopTicking() } }
-    }
-
-    private var players: [AppSound: AVAudioPlayer] = [:]
+    private let players: [SoundID: any SoundPlayer]
+    private let clock: any TickClock
     private var tickTask: Task<Void, Never>?
 
     init(
-        bundle: Bundle = .main,
-        masterVolume: Float = 0.8,
-        choices: [SoundEvent: AppSound] = SoundService.defaultChoices,
-        tickEnabled: Bool = false
+        settings: SoundSettings = SoundSettings(),
+        players: [SoundID: any SoundPlayer],
+        clock: any TickClock = SystemTickClock()
     ) {
-        self.masterVolume = min(max(masterVolume, 0), 1)
-        self.choices = choices
-        self.tickEnabled = tickEnabled
-        // Decoding and priming up front means a chime never waits on disk or the audio graph.
-        for sound in AppSound.allCases {
-            guard let url = Self.url(for: sound, in: bundle),
-                let player = try? AVAudioPlayer(contentsOf: url)
-            else { continue }
-            player.volume = self.masterVolume
-            player.prepareToPlay()
-            players[sound] = player
-        }
+        self.settings = settings
+        self.players = players
+        self.clock = clock
+        applyVolume()
     }
 
-    func isLoaded(_ sound: AppSound) -> Bool {
+    /// Loads every bundled sound up front so a chime doesn't wait on disk.
+    convenience init(bundle: Bundle = .main, settings: SoundSettings = SoundSettings()) {
+        var players: [SoundID: any SoundPlayer] = [:]
+        for sound in SoundID.allCases {
+            guard let url = Self.url(for: sound, in: bundle),
+                let player = AVSoundPlayer(contentsOf: url)
+            else { continue }
+            players[sound] = player
+        }
+        self.init(settings: settings, players: players)
+    }
+
+    func isLoaded(_ sound: SoundID) -> Bool {
         players[sound] != nil
     }
 
     var isTicking: Bool { tickTask != nil }
 
     func play(for event: SoundEvent) {
-        play(choices[event] ?? .none)
+        play(settings[keyPath: event.setting])
     }
 
     /// Plays a sound directly, e.g. to preview a choice in Settings.
-    func play(_ sound: AppSound) {
-        guard masterVolume > 0, let player = players[sound] else { return }
-        if player.isPlaying {
-            player.stop()
-        }
-        player.currentTime = 0
+    func play(_ sound: SoundID) {
+        guard settings.volume > 0, let player = players[sound] else { return }
         player.play()
     }
 
-    /// Call when focus starts or resumes; a no-op unless the tick is enabled.
+    /// Call when focus starts or resumes; a no-op while the tick sound is `.none`.
     func startTicking() {
-        guard tickEnabled, tickTask == nil else { return }
-        tickTask = Task { [weak self] in
-            // Sleep to absolute deadlines so the tick doesn't drift with scheduling jitter.
-            let clock = ContinuousClock()
-            var next = clock.now
-            while !Task.isCancelled {
+        guard settings.tick != .none, tickTask == nil else { return }
+        tickTask = Task { [weak self, clock = self.clock] in
+            await Self.runCadence(clock: clock) {
                 // Checked each beat so the loop ends if the service is released without stopping.
-                guard self?.play(.tick) != nil else { return }
-                next += .seconds(1)
-                do {
-                    try await clock.sleep(until: next, tolerance: .milliseconds(10))
-                } catch {
-                    return
-                }
+                guard let self else { return false }
+                self.play(for: .tick)
+                return true
             }
         }
     }
@@ -115,5 +163,37 @@ final class SoundService {
     func stopTicking() {
         tickTask?.cancel()
         tickTask = nil
+    }
+
+    /// Beats on a whole-second grid from the first beat. Purely audible: the timer's phase comes
+    /// from the wall clock, so dropped beats lose nothing.
+    static func runCadence(clock: any TickClock, beat: () -> Bool) async {
+        let anchor = clock.now
+        var deadline = anchor
+        while true {
+            do {
+                try await clock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            if Task.isCancelled { return }
+            let now = clock.now
+            if now - deadline <= lateBeatTolerance {
+                guard beat() else { return }
+            }
+            // After a system sleep the backlog is skipped, never replayed.
+            deadline = nextBeat(after: max(now, deadline), anchor: anchor)
+        }
+    }
+
+    /// The first grid beat strictly after `instant`.
+    static func nextBeat(after instant: ContinuousClock.Instant, anchor: ContinuousClock.Instant) -> ContinuousClock.Instant {
+        let elapsedBeats = Int(((instant - anchor) / tickInterval).rounded(.down))
+        return anchor + tickInterval * (elapsedBeats + 1)
+    }
+
+    private func applyVolume() {
+        let volume = Float(settings.volume)
+        for player in players.values { player.volume = volume }
     }
 }
