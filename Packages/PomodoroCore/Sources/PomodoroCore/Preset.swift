@@ -28,6 +28,18 @@ public struct Preset: Identifiable, Hashable, Sendable, Codable {
 
     public static let untitledName = "Untitled"
 
+    private enum CodingKeys: String, CodingKey { case id, name, profile }
+
+    /// Only the ID is required; a bad name or profile shouldn't cost the user the whole preset.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try c.decode(UUID.self, forKey: .id),
+            name: c.lenient(String.self, .name).map(Self.normalizedName) ?? Self.untitledName,
+            profile: c.lenient(TimerProfile.self, .profile) ?? .classic
+        )
+    }
+
     static func normalizedName(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? untitledName : trimmed

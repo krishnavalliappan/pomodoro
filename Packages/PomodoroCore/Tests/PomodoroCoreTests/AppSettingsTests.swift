@@ -102,6 +102,21 @@ struct AppSettingsTests {
         #expect(s.defaultPresetID == UUID(uuidString: id))
     }
 
+    @Test func presetWithBadNameOrProfileIsKept() {
+        let a = "00000000-0000-0000-0000-0000000000AA"
+        let b = "00000000-0000-0000-0000-0000000000BB"
+        let data = Data(#"""
+            {"version": 1, "defaultPresetID": "\#(b)",
+             "presets": [{"id": "\#(a)", "name": 7, "profile": {"focusDuration": 2400}},
+                         {"id": "\#(b)", "name": "Mine", "profile": "oops"}]}
+            """#.utf8)
+        let s = AppSettings.decode(data).settings
+        #expect(s.presets.map(\.name) == [Preset.untitledName, "Mine"])
+        #expect(s.presets[0].profile.focusDuration == 40 * 60)
+        #expect(s.presets[1].profile == .classic)
+        #expect(s.defaultPresetID == UUID(uuidString: b))
+    }
+
     @Test func emptyPresetListFallsBackToBuiltIns() {
         let s = AppSettings.decode(Data(#"{"version": 1, "presets": []}"#.utf8)).settings
         #expect(s.presets == Preset.builtIns)
@@ -203,6 +218,15 @@ struct PresetManagementTests {
         #expect(s.presets == [.classic, .deep, .quick])
         s.movePreset(fromOffset: 5, toOffset: 0)
         #expect(s.presets == [.classic, .deep, .quick])
+    }
+
+    // Offsets follow SwiftUI's onMove: an insertion point in the original order.
+    @Test func movePresetForwardUsesInsertionOffset() {
+        var s = AppSettings.default
+        s.movePreset(fromOffset: 0, toOffset: 2)
+        #expect(s.presets == [.deep, .classic, .quick])
+        s.movePreset(fromOffset: 0, toOffset: 1)
+        #expect(s.presets == [.deep, .classic, .quick])
     }
 
     @Test func restoreBuiltInsKeepsEdits() throws {

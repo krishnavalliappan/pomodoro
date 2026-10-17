@@ -31,7 +31,17 @@ struct SessionOverrideTests {
         #expect(SessionOverride(parsing: "500") == SessionOverride(focus: 180 * 60))
     }
 
-    @Test(arguments: ["", "abc", "0", "-5", "50/", "/10", "1/2/3", "4.5"])
+    @Test(arguments: ["999999999999", "9223372036854775807", "\(Int.max / 60 + 1)"])
+    func hugeFocusInputClampsWithoutOverflow(_ text: String) {
+        #expect(SessionOverride(parsing: text) == SessionOverride(focus: 180 * 60))
+    }
+
+    @Test(arguments: ["40/999999999999", "40/9223372036854775807"])
+    func hugeBreakInputClampsWithoutOverflow(_ text: String) {
+        #expect(SessionOverride(parsing: text) == SessionOverride(focus: 40 * 60, break: 180 * 60))
+    }
+
+    @Test(arguments: ["", "abc", "9223372036854775808", "0", "-5", "50/", "/10", "1/2/3", "4.5"])
     func rejectsInvalidInput(_ text: String) {
         #expect(SessionOverride(parsing: text) == nil)
     }

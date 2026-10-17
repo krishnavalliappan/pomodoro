@@ -64,6 +64,44 @@ struct SettingsStoreTests {
         }
     }
 
+    @Test func saveAfterLoadDoesNotOverwriteNewerVersion() {
+        withSuite { defaults in
+            let key = UserDefaultsSettingsStore.defaultKey
+            let original = Data(#"{"version": 42, "futureField": [1, 2], "launchAtLogin": true}"#.utf8)
+            defaults.set(original, forKey: key)
+            let store = UserDefaultsSettingsStore(defaults: defaults)
+
+            var s = store.load()
+            s.launchAtLogin = false
+            #expect(throws: SettingsStoreError.newerVersionStored(42)) { try store.save(s) }
+            #expect(defaults.data(forKey: key) == original)
+        }
+    }
+
+    @Test func saveWithoutLoadDoesNotOverwriteNewerVersion() {
+        withSuite { defaults in
+            let key = UserDefaultsSettingsStore.defaultKey
+            let original = Data(#"{"version": 42, "futureField": [1, 2]}"#.utf8)
+            defaults.set(original, forKey: key)
+
+            #expect(throws: SettingsStoreError.newerVersionStored(42)) {
+                try UserDefaultsSettingsStore(defaults: defaults).save(.default)
+            }
+            #expect(defaults.data(forKey: key) == original)
+        }
+    }
+
+    @Test func corruptDataIsOverwrittenOnSave() throws {
+        try withSuite { defaults in
+            defaults.set(Data("garbage".utf8), forKey: UserDefaultsSettingsStore.defaultKey)
+            var s = AppSettings.default
+            s.launchAtLogin = true
+            let store = UserDefaultsSettingsStore(defaults: defaults)
+            try store.save(s)
+            #expect(store.load() == s)
+        }
+    }
+
     @Test func corruptDataLoadsDefaults() {
         withSuite { defaults in
             defaults.set(Data("garbage".utf8), forKey: UserDefaultsSettingsStore.defaultKey)

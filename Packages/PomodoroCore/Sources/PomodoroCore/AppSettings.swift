@@ -145,10 +145,12 @@ extension AppSettings {
         defaultPresetID = id
     }
 
+    /// `destination` is an insertion offset in the original order, matching SwiftUI's `onMove`.
     public mutating func movePreset(fromOffset source: Int, toOffset destination: Int) {
         guard presets.indices.contains(source) else { return }
+        let destination = min(max(destination, 0), presets.count)
         let preset = presets.remove(at: source)
-        presets.insert(preset, at: min(max(destination, 0), presets.count))
+        presets.insert(preset, at: destination > source ? destination - 1 : destination)
     }
 
     /// Adds back any built-in the user deleted, keeping their edits to the others.
@@ -215,6 +217,11 @@ extension AppSettings: Codable {
         }
         let version = probe.version ?? 0
         return Decoded(settings: migrate(settings, from: version), storedVersion: version)
+    }
+
+    /// The version recorded in `data` even if the rest is unreadable; `nil` when there is none.
+    public static func storedVersion(in data: Data) -> Int? {
+        (try? JSONDecoder().decode(VersionProbe.self, from: data))?.version
     }
 
     static func migrate(_ settings: AppSettings, from version: Int) -> AppSettings {
