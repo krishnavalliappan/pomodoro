@@ -461,14 +461,15 @@ final class TimelineStoreTests: XCTestCase {
         let store = TimelineStore(model: h.makeModel())
         let observing = Task { await store.observe() }
         defer { observing.cancel() }
+        try await awaitSubscription(h, store)
 
         store.dragMove(block.id, by: 3600)
         store.endDrag()
         XCTAssertTrue(try h.database.tasks.delete(id: task.id))
-        try await waitUntil { store.blocks.map(\.taskID) == [nil] }
-        XCTAssertEqual(store.blocks.map(\.start), [at(11)])
+        try await waitUntil { store.block(id: block.id).map { $0.taskID == nil } == true }
+        XCTAssertEqual(store.block(id: block.id)?.start, at(11))
         try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(store.blocks.map(\.taskID), [nil], "and it stays unlinked")
+        XCTAssertNil(store.block(id: block.id)?.taskID, "and it stays unlinked")
     }
 
     func testAWriteDoesntLeaveAGhostOfABlockDeletedElsewhere() async throws {
@@ -477,12 +478,20 @@ final class TimelineStoreTests: XCTestCase {
         let store = TimelineStore(model: h.makeModel())
         let observing = Task { await store.observe() }
         defer { observing.cancel() }
+        try await awaitSubscription(h, store)
 
         store.setColor(block.id, "teal")
         XCTAssertTrue(try h.database.blocks.delete(id: block.id))
-        try await waitUntil { store.blocks.isEmpty }
+        try await waitUntil { store.block(id: block.id) == nil }
         try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(store.blocks, [])
+        XCTAssertNil(store.block(id: block.id))
+    }
+
+    /// Waits until the observation delivers a write from elsewhere, so the writes after it race
+    /// a live subscription rather than run before one starts.
+    private func awaitSubscription(_ h: ModelHarness, _ store: TimelineStore) async throws {
+        let marker = try addBlock(h, "Marker", at: at(16))
+        try await waitUntil { store.block(id: marker.id) != nil }
     }
 
     /// A value the observation fetched before a write must not put the old block back; one from
@@ -558,6 +567,19 @@ final class TimelineStoreTests: XCTestCase {
         h.scheduler.advance(by: 3600)
         XCTAssertNil(model.tasks.suggestedTaskID)
         XCTAssertEqual(h.scheduler.pendingDates, [], "nothing left today")
+    }
+
+    /// With nothing left today no timer waits; the day change schedules tomorrow's first block.
+    func testTheDayChangeSchedulesTomorrowsFirstBoundary() throws {
+        let h = try ModelHarness()
+        try addBlock(h, "Tomorrow", at: at(10) + 86_400)
+        let model = h.makeModel()
+        model.setPopoverVisible(true)
+        XCTAssertEqual(h.scheduler.pendingDates, [], "nothing left today")
+
+        h.clock.advance(by: 15 * 3600 + 60)
+        model.dayMayHaveChanged(.dayChanged)
+        XCTAssertEqual(h.scheduler.pendingDates, [at(10) + 86_400])
     }
 
     func testTheBoundaryTimerRunsOnlyWhileSomethingShowsIt() async throws {
