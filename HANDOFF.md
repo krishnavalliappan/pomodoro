@@ -104,13 +104,10 @@ ad-hoc signs and publishes it. `MARKETING_VERSION` and `Version.current` are alr
 | #44 Sounds tab UI | — | unblocked once #47 merges. Fills the Sounds tab placeholder from #46 |
 | #45 Subtle animations | — | unblocked (#46 merged) |
 
-**Do this first: #49, a flaky idle snapshot.** After #46 merged, `main` CI failed once on
-`testIdle`, and the handoff PR then failed once on `testNoTasks`. In both cases the only
-difference was an AppKit-backed `TextField` placeholder (the "Custom" field and the
-quick-add field) sitting 1px lower. Fix it by drawing placeholders as SwiftUI `Text`
-overlays, or by making the fields lazy (a chip that becomes a field on click), and add a
-pixel-stability loop for those tabs. Until it's fixed, any PR can hit this at random, so
-re-run once and treat a repeat failure as real.
+**#49, the flaky placeholder snapshots, is fixed and merged (PR #50).** Text-field
+placeholders in the popover and planner are now drawn by SwiftUI, and
+`PopoverPixelStabilityTests` requires byte-identical renders. If a snapshot fails now,
+treat it as real.
 
 **PR #47: what's done and what's left**
 
