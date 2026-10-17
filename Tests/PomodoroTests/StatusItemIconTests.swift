@@ -71,7 +71,7 @@ final class StatusItemIconTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
         let failure = verifySnapshot(
             of: view,
-            as: .image(precision: 0.99, perceptualPrecision: 0.98),
+            as: Snapshot.image,
             named: named,
             snapshotDirectory: Snapshot.directory(for: file),
             file: file,

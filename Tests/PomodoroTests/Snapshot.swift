@@ -16,6 +16,13 @@ enum Snapshot {
             .path
     }
 
+    /// Every pixel must match, within a small per-pixel colour tolerance for anti-aliasing. A
+    /// share of mismatched pixels is never allowed: 1% let a whole outdated popover row pass.
+    @MainActor
+    static var image: Snapshotting<NSView, NSImage> {
+        .image(precision: 1.0, perceptualPrecision: 0.995)
+    }
+
     /// Renders `view` in light and dark, as `<name>.<variant>.light.png` and `….dark.png`.
     /// Without a `size`, the view is content-sized: it takes the height it fits, as the popover does.
     @MainActor
@@ -52,7 +59,7 @@ enum Snapshot {
 
             let failure = verifySnapshot(
                 of: host,
-                as: .image(precision: 0.99, perceptualPrecision: 0.98),
+                as: image,
                 named: [variant, label].compactMap { $0 }.joined(separator: "."),
                 snapshotDirectory: directory(for: file),
                 file: file,
