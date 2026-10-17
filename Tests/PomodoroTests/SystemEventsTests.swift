@@ -54,7 +54,7 @@ final class SystemEventsTests: XCTestCase {
             MainActor.assertIsolated()
             reconciled.fulfill()
         }
-        nonisolated(unsafe) let local = self.local
+        let local = self.local
         DispatchQueue.global().async { local.post(name: .NSSystemClockDidChange, object: nil) }
         await fulfillment(of: [reconciled], timeout: 5)
         withExtendedLifetime(events) {}
@@ -63,7 +63,7 @@ final class SystemEventsTests: XCTestCase {
     func testReleasingStopsObserving() {
         let calls = Counter()
         var events: SystemEvents? = makeEvents { calls.value += 1 }
-        weak var weakEvents = events
+        weak let weakEvents = events
         events = nil
         XCTAssertNil(weakEvents)
         workspace.post(name: NSWorkspace.didWakeNotification, object: nil)
