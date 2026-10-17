@@ -89,3 +89,79 @@ final class PopoverSizeStabilityTests: XCTestCase {
         XCTAssertEqual(Set(sizes).count, 1, "Popover rendered at \(Set(sizes).sorted()) across \(passes) passes: \(sizes)", file: file, line: line)
     }
 }
+
+/// Every pixel, not just the size: AppKit drew a text field's placeholder a point higher or
+/// lower from one render to the next, so snapshots holding an empty field failed at random (#49).
+@MainActor
+final class PopoverPixelStabilityTests: XCTestCase {
+    private let passes = 20
+
+    func testIdleIsPixelStable() throws {
+        try assertPixelStable(.timer) { $0.makeModel() }
+    }
+
+    func testSuggestionIsPixelStable() throws {
+        try assertPixelStable(.timer) { h in
+            try h.seedTasks()
+            return h.makeModel()
+        }
+    }
+
+    func testTasksEmptyIsPixelStable() throws {
+        try assertPixelStable(.tasks) { $0.makeModel() }
+    }
+
+    func testTasksSeededIsPixelStable() throws {
+        try assertPixelStable(.tasks) { h in
+            let seeded = try h.seedTasks()
+            let model = h.makeModel()
+            model.startFocus(on: seeded.writeSpec.id)
+            h.clock.advance(by: 6 * 60 + 18)
+            return model
+        }
+    }
+
+    /// Typed text is still AppKit's to draw.
+    func testQuickAddIsPixelStable() throws {
+        try assertPixelStable(.tasks, draft: "Write spec ~3 @14:00 45m #work tomorrow") { h in
+            try h.seedTasks()
+            return h.makeModel()
+        }
+    }
+
+    /// Renders as `PopoverViewSnapshotTests` does, from a fresh model each pass, and compares
+    /// every pass with the first in the same appearance.
+    private func assertPixelStable(
+        _ tab: PopoverTab,
+        draft: String = "",
+        makeModel: (ModelHarness) throws -> AppModel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        var first: [String: (rep: NSBitmapImageRep, png: Data)] = [:]
+        var failures: [String] = []
+        for pass in 0..<passes {
+            let h = try ModelHarness(display: .time)
+            try h.seedCompletedSessions(2)
+            let model = try makeModel(h)
+            model.setPopoverVisible(true)
+            let navigation = PopoverNavigation(defaults: PopoverViewSnapshotTests.freshDefaults())
+            navigation.select(tab)
+            navigation.quickAddDraft = draft
+            let view = PopoverView(model: model, navigation: navigation, actions: PopoverActions(quit: {}))
+            for (appearance, scheme, label) in [(NSAppearance.Name.aqua, ColorScheme.light, "light"), (.darkAqua, .dark, "dark")] {
+                let rep = try XCTUnwrap(Snapshot.render(view, appearance: appearance, scheme: scheme), file: file, line: line)
+                let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]), file: file, line: line)
+                guard let reference = first[label] else {
+                    first[label] = (rep, png)
+                    continue
+                }
+                if png != reference.png {
+                    let pixels = Snapshot.differingPixels(rep, reference.rep).map { "\($0) pixels differ" } ?? "size differs"
+                    failures.append("pass \(pass) \(label): \(pixels)")
+                }
+            }
+        }
+        XCTAssertTrue(failures.isEmpty, "\(tab) renders differ from the first pass: \(failures)", file: file, line: line)
+    }
+}

@@ -101,6 +101,32 @@ struct TaskCheckbox: View {
     }
 }
 
+extension View {
+    /// Draws a plain `TextField`'s placeholder in SwiftUI; give the field itself an empty one.
+    /// AppKit's placeholder lands a point higher or lower from one render to the next, which
+    /// made every snapshot holding an empty field flaky (#49).
+    func placeholder(_ placeholder: String, when isEmpty: Bool, alignment: Alignment = .leading) -> some View {
+        overlay(alignment: alignment) {
+            if isEmpty {
+                Text(placeholder)
+                    .lineLimit(1)
+                    .foregroundStyle(placeholderColor)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityLabel(Text(placeholder))
+    }
+}
+
+/// What AppKit drew a plain field's placeholder in, measured from the old snapshots; it's
+/// darker than `placeholderTextColor`.
+private let placeholderColor = Color(nsColor: NSColor(name: nil) { appearance in
+    appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        ? NSColor(white: 1, alpha: 0.8)
+        : NSColor(white: 0, alpha: 0.75)
+})
+
 /// Quick-add with a live readout of what the parser found, so the `~3 @14:00 45m #tag tomorrow`
 /// syntax is discoverable by typing.
 struct QuickAddField: View {
@@ -147,10 +173,11 @@ struct QuickAddField: View {
             HStack(spacing: 6) {
                 Image(systemName: "plus.circle.fill")
                     .foregroundStyle(.secondary)
-                TextField(placeholder, text: text)
+                TextField("", text: text)
                     .textFieldStyle(.plain)
                     // Pinned like the popover's Custom field: AppKit's own height isn't stable (#38).
                     .frame(height: 16)
+                    .placeholder(placeholder, when: text.wrappedValue.isEmpty)
                     .focused($isFocused)
                     .onSubmit(submit)
                     .onChange(of: isFocused) { isEditing?.wrappedValue = isFocused }

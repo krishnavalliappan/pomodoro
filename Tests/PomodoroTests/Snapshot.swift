@@ -84,10 +84,29 @@ enum Snapshot {
     /// The pixel size `assertLightAndDark` writes for `view` when it's content-sized.
     @MainActor
     static func renderedPixelSize(_ view: some View, appearance: NSAppearance.Name, scheme: ColorScheme) -> CGSize {
+        guard let rep = render(view, appearance: appearance, scheme: scheme) else { return .zero }
+        return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+    }
+
+    /// `view`, content-sized, as a bitmap.
+    @MainActor
+    static func render(_ view: some View, appearance: NSAppearance.Name, scheme: ColorScheme) -> NSBitmapImageRep? {
         let host = makeHost(view, appearance: appearance, scheme: scheme, size: nil)
         host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return .zero }
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
         host.cacheDisplay(in: host.bounds, to: rep)
-        return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+        return rep
+    }
+
+    /// How many pixels differ between two renders of the same size, or nil if the sizes differ.
+    static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int? {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return nil }
+        var count = 0
+        for y in 0..<a.pixelsHigh {
+            for x in 0..<a.pixelsWide where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) {
+                count += 1
+            }
+        }
+        return count
     }
 }

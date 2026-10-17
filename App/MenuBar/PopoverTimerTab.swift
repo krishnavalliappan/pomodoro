@@ -472,12 +472,13 @@ struct PresetRow: View {
                 }
                 .help("For the next focus and its break only. Click to clear.")
             } else {
-                TextField("Custom", text: $custom)
+                TextField("", text: $custom)
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.center)
                     // AppKit sizes the field itself, and now and then a point taller; the popover
                     // takes its content's height, so that point moved the whole layout (#38).
                     .frame(width: 56, height: 16)
+                    .placeholder("Custom", when: custom.isEmpty, alignment: .center)
                     .padding(.horizontal, 8)
                     .frame(height: Chip.height)
                     .background(Capsule().fill(PopoverStyle.surface))
