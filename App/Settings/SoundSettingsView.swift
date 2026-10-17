@@ -32,7 +32,7 @@ struct SoundSettingsView: View {
     }
 
     private func row(for event: SoundEvent) -> some View {
-        let selection = model.binding((\AppSettings.sounds).appending(path: event.setting))
+        let selection = model.binding(event.settingsPath)
         return LabeledContent(event.title) {
             HStack(spacing: 6) {
                 Picker(event.title, selection: selection) {

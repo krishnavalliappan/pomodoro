@@ -131,7 +131,7 @@ final class SettingsTests: XCTestCase {
         let h = try ModelHarness()
         let model = h.makeModel()
         model.binding(\.sounds.volume).wrappedValue = 0.3
-        model.binding((\AppSettings.sounds).appending(path: SoundEvent.focusEnd.setting)).wrappedValue = .bowl
+        model.binding(SoundEvent.focusEnd.settingsPath).wrappedValue = .bowl
         XCTAssertEqual(model.sound.settings.volume, 0.3)
         XCTAssertEqual(model.sound.settings.focusEnd, .bowl)
         XCTAssertEqual(h.settingsStore.load().sounds.focusEnd, .bowl)

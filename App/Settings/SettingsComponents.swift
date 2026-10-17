@@ -70,6 +70,15 @@ extension SoundID {
 }
 
 extension SoundEvent {
+    var settingsPath: WritableKeyPath<AppSettings, SoundID> {
+        switch self {
+        case .focusEnd: \.sounds.focusEnd
+        case .breakEnd: \.sounds.breakEnd
+        case .start: \.sounds.start
+        case .tick: \.sounds.tick
+        }
+    }
+
     var title: String {
         switch self {
         case .focusEnd: "Focus ends"
