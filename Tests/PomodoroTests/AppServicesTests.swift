@@ -37,7 +37,8 @@ final class AppServicesTests: XCTestCase {
         return AppServices(
             notifications: notifications ?? makeNotifications(),
             appNap: AppNapGuard(scheduler: activities),
-            makeModel: { h.makeModel(onEngineUpdate: $0) },
+            ambient: h.makeAmbientPlayer(),
+            makeModel: { h.makeModel(ambient: $0, onEngineUpdate: $1) },
             makeSystemEvents: {
                 SystemEvents(workspaceCenter: workspace, distributedCenter: distributed, localCenter: local, reconcile: $0)
             }

@@ -1,0 +1,387 @@
+{
+  "version": 1,
+  "format": {
+    "codec": "aac",
+    "bitrate": "96k",
+    "sampleRate": 44100,
+    "channels": 2,
+    "loudness": "-24.0 LUFS integrated, -3.0 dBTP"
+  },
+  "sounds": [
+    {
+      "id": "forest",
+      "title": "Forest",
+      "symbol": "tree",
+      "file": "forest.m4a",
+      "frames": 5291008,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 119.978,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/birds.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/birds.ogg",
+        "sha256": "e59b19c2a377d5835d07e7ec8f8c876b9f40ae7f703738b55d616ef96a1638b2"
+      },
+      "credit": {
+        "title": "WoodThrushinMorningShawneeForestMay272012.wav",
+        "author": "kvgarlic",
+        "url": "https://freesound.org/people/kvgarlic/sounds/156826/",
+        "license": "CC0-1.0",
+        "licenseName": "CC0 1.0",
+        "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "editedBy": "Porrumentzio"
+      }
+    },
+    {
+      "id": "rain",
+      "title": "Rain",
+      "symbol": "cloud.rain",
+      "file": "rain.m4a",
+      "frames": 5291008,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 119.978,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/rain.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/rain.ogg",
+        "sha256": "b84c1daf259a24283be40b7663656d17676df4eb60c1e0332820570db891848a"
+      },
+      "credit": {
+        "title": "rain ambience",
+        "author": "alex36917",
+        "url": "https://freesound.org/people/alex36917/sounds/524605/",
+        "license": "CC-BY-4.0",
+        "licenseName": "CC BY 4.0",
+        "licenseURL": "https://creativecommons.org/licenses/by/4.0/",
+        "editedBy": "Porrumentzio"
+      }
+    },
+    {
+      "id": "storm",
+      "title": "Storm",
+      "symbol": "cloud.bolt.rain",
+      "file": "storm.m4a",
+      "frames": 999424,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 22.663,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/storm.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/storm.ogg",
+        "sha256": "7e2a9bee62273b1deb169b6f7a308b70ead6ae450d3f6c75b854a44e4bef7b5a"
+      },
+      "credit": {
+        "title": "Infinite Storm.wav",
+        "author": "digifishmusic",
+        "url": "https://freesound.org/people/digifishmusic/sounds/41739/",
+        "license": "CC-BY-4.0",
+        "licenseName": "CC BY 4.0",
+        "licenseURL": "https://creativecommons.org/licenses/by/4.0/",
+        "editedBy": "Porrumentzio"
+      }
+    },
+    {
+      "id": "wind",
+      "title": "Wind",
+      "symbol": "wind",
+      "file": "wind.m4a",
+      "frames": 523264,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 11.865,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/wind.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/wind.ogg",
+        "sha256": "cfdc81be69cd5f434ebfeb708bdf094725f3052d76691f550ff0e10eee3e32d2"
+      },
+      "credit": {
+        "title": "Wind blowing in a field in Texas, USA",
+        "author": "felix.blume",
+        "url": "https://freesound.org/people/felix.blume/sounds/217506/",
+        "license": "CC0-1.0",
+        "licenseName": "CC0 1.0",
+        "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "editedBy": "Porrumentzio"
+      }
+    },
+    {
+      "id": "waves",
+      "title": "Waves",
+      "symbol": "water.waves",
+      "file": "waves.m4a",
+      "frames": 5072896,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 115.032,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/waves.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/waves.ogg",
+        "sha256": "20e1aec7c7542f71645275871650881ea33bc92bd9816b243ea920bb1daa51a0"
+      },
+      "credit": {
+        "title": "oceanwavescrushing.wav",
+        "author": "Luftrum",
+        "url": "https://freesound.org/people/Luftrum/sounds/48412/",
+        "license": "CC-BY-4.0",
+        "licenseName": "CC BY 4.0",
+        "licenseURL": "https://creativecommons.org/licenses/by/4.0/",
+        "editedBy": "Porrumentzio"
+      }
+    },
+    {
+      "id": "stream",
+      "title": "Stream",
+      "symbol": "drop",
+      "file": "stream.m4a",
+      "frames": 5291008,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 119.978,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/stream.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/stream.ogg",
+        "sha256": "ce372c5db561168636647dd7d4aac39ef1785ae5d415ad0e589186ce1b7c5796"
+      },
+      "credit": {
+        "title": "stream2.wav",
+        "author": "gluckose",
+        "url": "https://freesound.org/people/gluckose/sounds/333987/",
+        "license": "CC0-1.0",
+        "licenseName": "CC0 1.0",
+        "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "editedBy": null
+      }
+    },
+    {
+      "id": "night",
+      "title": "Night",
+      "symbol": "moon.stars",
+      "file": "night.m4a",
+      "frames": 2041856,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 46.301,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/summer-night.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/summer-night.ogg",
+        "sha256": "2eb2efb8f5c6733e74dc8546f2ecfac40407e8242a9eed96a72e0fc68790ac6f"
+      },
+      "credit": {
+        "title": "Crickets Chirping At Night",
+        "author": "Lisa Redfern",
+        "url": "https://soundbible.com/2083-Crickets-Chirping-At-Night.html",
+        "license": "PD",
+        "licenseName": "Public Domain",
+        "licenseURL": null,
+        "editedBy": null
+      }
+    },
+    {
+      "id": "fireplace",
+      "title": "Fireplace",
+      "symbol": "flame",
+      "file": "fireplace.m4a",
+      "frames": 993280,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 22.523,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/fireplace.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/fireplace.ogg",
+        "sha256": "a6395379a32c2dc30dd870c4571ded4a5311435aacfe354b3a82a9b3ab98620b"
+      },
+      "credit": {
+        "title": "Fireplace",
+        "author": "ezwa",
+        "url": "https://soundbible.com/1543-Fireplace.html",
+        "license": "PD",
+        "licenseName": "Public Domain",
+        "licenseURL": null,
+        "editedBy": null
+      }
+    },
+    {
+      "id": "cafe",
+      "title": "Café",
+      "symbol": "cup.and.saucer",
+      "file": "cafe.m4a",
+      "frames": 602112,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 13.653,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/coffee-shop.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/coffee-shop.ogg",
+        "sha256": "397b5d95f06df69ba2989147cf9c37a417b2dc5950c1a16fbe6be6fa372d25ef"
+      },
+      "credit": {
+        "title": "Restaurant Ambiance",
+        "author": "stephan",
+        "url": "https://soundbible.com/1664-Restaurant-Ambiance.html",
+        "license": "PD",
+        "licenseName": "Public Domain",
+        "licenseURL": null,
+        "editedBy": null
+      }
+    },
+    {
+      "id": "city",
+      "title": "City",
+      "symbol": "building.2",
+      "file": "city.m4a",
+      "frames": 954368,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 21.641,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/city.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/city.ogg",
+        "sha256": "3e9a574a0d93f75872e0f37304c622e6cb76b28714deb1a50af666293105ae75"
+      },
+      "credit": {
+        "title": "NYC_street leve02l.wav",
+        "author": "gezortenplotz",
+        "url": "https://freesound.org/people/gezortenplotz/sounds/44796/",
+        "license": "CC-BY-3.0",
+        "licenseName": "CC BY 3.0",
+        "licenseURL": "https://creativecommons.org/licenses/by/3.0/",
+        "editedBy": "Porrumentzio"
+      }
+    },
+    {
+      "id": "train",
+      "title": "Train",
+      "symbol": "tram",
+      "file": "train.m4a",
+      "frames": 254976,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 5.782,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/train.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/train.ogg",
+        "sha256": "b749ecf8f04842075c061e2f5572c85b2827d9ecc0670476f3339a9288bb4d71"
+      },
+      "credit": {
+        "title": "Trains of the Yamanote Line",
+        "author": "SDLx",
+        "url": "https://freesound.org/people/SDLx/sounds/259988/",
+        "license": "CC-BY-3.0",
+        "licenseName": "CC BY 3.0",
+        "licenseURL": "https://creativecommons.org/licenses/by/3.0/",
+        "editedBy": null
+      }
+    },
+    {
+      "id": "boat",
+      "title": "Boat",
+      "symbol": "sailboat",
+      "file": "boat.m4a",
+      "frames": 1699840,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 38.545,
+      "source": {
+        "kind": "blanket",
+        "repository": "https://github.com/rafaelmardojai/blanket",
+        "commit": "775f2a767230a9681850d1b1e085be58656f1382",
+        "path": "data/resources/sounds/boat.ogg",
+        "url": "https://raw.githubusercontent.com/rafaelmardojai/blanket/775f2a767230a9681850d1b1e085be58656f1382/data/resources/sounds/boat.ogg",
+        "sha256": "e6f3565750e2d3dd0dcb5bd3f826c10e302df4d1d044dd177af0707abe027dea"
+      },
+      "credit": {
+        "title": "Ambience_Sea_Boat_Night_Ropes_4.wav",
+        "author": "Falcet",
+        "url": "https://freesound.org/people/Falcet/sounds/439365/",
+        "license": "CC0-1.0",
+        "licenseName": "CC0 1.0",
+        "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "editedBy": "Porrumentzio"
+      }
+    },
+    {
+      "id": "white-noise",
+      "title": "White Noise",
+      "symbol": "waveform",
+      "file": "white-noise.m4a",
+      "frames": 1321984,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 29.977,
+      "source": {
+        "kind": "generated",
+        "generator": "scripts/import_ambient.py",
+        "color": "white",
+        "seed": 22433
+      },
+      "credit": null
+    },
+    {
+      "id": "pink-noise",
+      "title": "Pink Noise",
+      "symbol": "waveform.path",
+      "file": "pink-noise.m4a",
+      "frames": 1321984,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 29.977,
+      "source": {
+        "kind": "generated",
+        "generator": "scripts/import_ambient.py",
+        "color": "pink",
+        "seed": 37237
+      },
+      "credit": null
+    },
+    {
+      "id": "brown-noise",
+      "title": "Brown Noise",
+      "symbol": "waveform.path.ecg",
+      "file": "brown-noise.m4a",
+      "frames": 1321984,
+      "sampleRate": 44100,
+      "channels": 2,
+      "duration": 29.977,
+      "source": {
+        "kind": "generated",
+        "generator": "scripts/import_ambient.py",
+        "color": "brown",
+        "seed": 45573
+      },
+      "credit": null
+    }
+  ]
+}
