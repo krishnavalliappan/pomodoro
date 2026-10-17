@@ -1250,18 +1250,18 @@ struct TimerEngineReentryTests {
     @Test func nestedActionsFromTheProviderAreIgnored() {
         let (engine, clock) = breakAtItsEnd()
         var asked = 0
+        var nested: [[TimerEvent]] = []
         engine.configurationForFocus = {
             asked += 1
-            #expect(engine.reset().isEmpty)
-            #expect(engine.start(phase: .longBreak).isEmpty)
-            #expect(engine.skip().isEmpty)
-            #expect(engine.stopAndLog().isEmpty)
+            nested = [engine.reset(), engine.start(phase: .longBreak), engine.skip(), engine.stopAndLog()]
             engine.configuration = TimerConfiguration(focusDuration: 1)
             _ = engine.snapshot()
             return TimerConfiguration(focusDuration: 40 * 60, autoStartFocus: true)
         }
         let events = engine.reconcile()
         #expect(asked == 1)
+        #expect(nested.count == 4)
+        #expect(nested.allSatisfy(\.isEmpty))
         #expect(kinds(events) == ["breakEnded", "started:focus"])
         #expect(engine.phase == .focus)
         #expect(engine.state.plannedDuration == 40 * 60, "the provider's result wins over its ignored setter call")
