@@ -53,11 +53,11 @@ public struct QuickAddParser: Sendable {
         var blockStart: Date?
         if let time {
             let base = day ?? today
-            // A wall-clock time skipped by DST resolves to the same offset past the gap
-            // (02:30 → 03:30); a repeated one resolves to its first occurrence.
+            // A wall-clock time skipped by DST snaps to the end of the gap (02:30 → 03:00);
+            // a repeated one resolves to its first occurrence.
             blockStart = calendar.date(
                 bySettingHour: time.hour, minute: time.minute, second: 0, of: base,
-                matchingPolicy: .nextTimePreservingSmallerComponents,
+                matchingPolicy: .nextTime,
                 repeatedTimePolicy: .first
             )
             day = base

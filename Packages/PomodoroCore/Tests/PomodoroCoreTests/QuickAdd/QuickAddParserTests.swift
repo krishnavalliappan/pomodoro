@@ -139,8 +139,10 @@ struct QuickAddParserTests {
 
     @Test func blockDefaultsFollowConfiguredLengths() {
         let parser = QuickAddParser(calendar: newYork, pomodoroLength: 50 * 60, defaultBlockDuration: 15 * 60)
-        #expect(parser.parse("Deep ~2 @9", now: wednesday).blockDuration == 100 * 60)
-        #expect(parser.parse("Quick @9", now: wednesday).blockDuration == 15 * 60)
+        let estimated: TimeInterval? = parser.parse("Deep ~2 @9", now: wednesday).blockDuration
+        let fallback: TimeInterval? = parser.parse("Quick @9", now: wednesday).blockDuration
+        #expect(estimated == TimeInterval(100 * 60))
+        #expect(fallback == TimeInterval(15 * 60))
     }
 
     @Test func timeAlreadyPassedStaysToday() {
@@ -178,9 +180,9 @@ struct QuickAddParserDSTTests {
         #expect(result.blockStart == utc("2026-03-08T18:00:00Z"))
     }
 
-    @Test func skippedTimeMovesPastTheGap() {
+    @Test func skippedTimeSnapsToEndOfGap() {
         let result = parser.parse("Run tomorrow @2:30", now: beforeSpring)
-        #expect(result.blockStart == utc("2026-03-08T07:30:00Z"))
+        #expect(result.blockStart == utc("2026-03-08T07:00:00Z"))
     }
 
     @Test func fallBackKeepsWallClockTime() {
