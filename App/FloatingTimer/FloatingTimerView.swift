@@ -98,7 +98,10 @@ struct FloatingTimerView: View {
                     .truncationMode(.tail)
                 HStack(spacing: 6) {
                     primaryButton
-                    if stage.status == .running || stage.status == .paused {
+                    if stage.status == .overtime {
+                        // Overtime still counts, so an interruption needs a way to freeze it.
+                        FloatingButton(symbol: "pause.fill", help: "Pause", action: model.pause)
+                    } else if stage.status == .running || stage.status == .paused {
                         FloatingButton(symbol: "forward.end.fill", help: stage.phase == .focus ? "Skip to break" : "Skip to focus", action: model.skip)
                     }
                     FloatingButton(
