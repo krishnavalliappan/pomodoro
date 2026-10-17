@@ -108,7 +108,8 @@ struct StatsTests {
         ]
         let days = stats.dailyFocus(sessions, in: week)
         #expect(days.map(\.day) == week.days)
-        #expect(days.map(\.focusedSeconds) == [65 * 60, 0, 30 * 60, 10 * 60, 0, 0, 0])
+        let minutes: [TimeInterval] = [65, 0, 30, 10, 0, 0, 0]
+        #expect(days.map(\.focusedSeconds) == minutes.map { $0 * 60 })
         #expect(days.map(\.completedPomodoros) == [2, 0, 1, 0, 0, 0, 0])
         #expect(days.map(\.sessionCount) == [2, 0, 1, 1, 0, 0, 0])
     }
@@ -284,7 +285,8 @@ struct StatsTests {
             focusDays: stats.focusDays(sessions), today: day(2026, 10, 17), topTaskLimit: 2
         )
         #expect(report.week == week)
-        #expect(report.days.map(\.focusedSeconds) == [50 * 60, 50 * 60, 10 * 60, 90 * 60, 25 * 60, 0, 0])
+        let minutes: [TimeInterval] = [50, 50, 10, 90, 25, 0, 0]
+        #expect(report.days.map(\.focusedSeconds) == minutes.map { $0 * 60 })
         #expect(report.totalSeconds == 225 * 60)
         #expect(report.completedPomodoros == 6)
         #expect(report.previousWeekSeconds == 50 * 60)
@@ -310,10 +312,12 @@ struct StatsTests {
         #expect(report.streak == .zero)
     }
 
-    @Test(arguments: [
-        (0.0, "0m"), (59.0, "0m"), (60.0, "1m"), (45 * 60.0, "45m"), (3599.0, "59m"),
-        (3600.0, "1h"), (100 * 60.0, "1h 40m"), (125 * 60.0 + 30, "2h 5m"), (-5.0, "0m"), (.infinity, "0m"),
-    ])
+    static let durations: [(TimeInterval, String)] = [
+        (0, "0m"), (59, "0m"), (60, "1m"), (2700, "45m"), (3599, "59m"),
+        (3600, "1h"), (6000, "1h 40m"), (7530, "2h 5m"), (-5, "0m"), (.infinity, "0m"),
+    ]
+
+    @Test(arguments: durations)
     func durationText(seconds: TimeInterval, text: String) {
         #expect(Stats.durationText(seconds) == text)
     }
