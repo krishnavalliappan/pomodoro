@@ -21,7 +21,8 @@ struct PopoverSoundsTab: View {
                 Text(Self.caption(mix: mix, sounds: model.availableAmbientSounds, isPlaying: model.isAmbientPlaying))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    // Two lines whatever the mix, so picking sounds never resizes the popover.
+                    .lineLimit(2, reservesSpace: true)
                     .fixedSize(horizontal: false, vertical: true)
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: Self.columns), spacing: 10) {
@@ -75,6 +76,12 @@ private struct SoundTile: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var accessibilityValue: String {
+        var parts = [isOn ? "On, level \(level.formatted(.percent))" : "Off"]
+        if isPreviewing { parts.append("previewing") }
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         Button(action: tap) {
             VStack(spacing: 5) {
@@ -111,6 +118,8 @@ private struct SoundTile: View {
         }
         .help(isOn ? "Turn off \(sound.title). Right-click to set its level." : "Turn on \(sound.title)")
         .accessibilityLabel(sound.title)
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint(isOn ? "Turns it off. The actions menu sets its level." : "Adds it to the mix.")
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }

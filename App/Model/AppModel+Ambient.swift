@@ -1,8 +1,9 @@
 import Foundation
 import PomodoroCore
 
-/// The ambient mix, for the Sounds tab (#44) to bind to. Edits save through `updateSettings`,
-/// which hands the new mix to the player; the timer decides when it's heard.
+/// The ambient mix, for the Sounds tab (#44) to bind to. Edits go through `updateSettings`, or
+/// `adjustAmbient` for the volume, which hand the new mix to the player; the timer decides when
+/// it's heard.
 extension AppModel {
     var ambientMix: AmbientMix { settings.ambient }
 
@@ -23,11 +24,11 @@ extension AppModel {
         guard ambient.library.sound(id: id) != nil else { return }
         let switchingOn = !ambientMix.contains(id)
         toggleAmbient(id)
-        guard !ambient.timerPlaysMix else { return }
-        if switchingOn {
+        if !switchingOn {
+            // Even with focus now playing the mix, a preview from before it started would keep the sound on.
+            if previewingAmbient == id { stopAmbientPreview() }
+        } else if !ambient.timerPlaysMix {
             previewAmbient(id)
-        } else if previewingAmbient == id {
-            stopAmbientPreview()
         }
     }
 
@@ -43,9 +44,9 @@ extension AppModel {
         updateSettings { $0.ambient.toggle(id) }
     }
 
-    /// The master volume, 0…1.
+    /// The master volume, 0…1. Saved once it stops moving.
     func setAmbientVolume(_ volume: Double) {
-        updateSettings { $0.ambient.volume = volume }
+        adjustAmbient { $0.volume = volume }
     }
 
     /// One layer's level under the master volume, 0…1.

@@ -485,6 +485,49 @@ final class AppModelAmbientTests: XCTestCase {
         XCTAssertTrue(model.isAmbientPlaying)
     }
 
+    /// A preview started while idle would otherwise outlast its tile being switched off in focus.
+    func testSwitchingOffDuringFocusStopsAPreviewFromBefore() throws {
+        let h = try ModelHarness()
+        let model = services(h).model
+        model.tapAmbient("rain")
+        XCTAssertEqual(model.previewingAmbient, "rain")
+        model.startFocus()
+        model.tapAmbient("rain")
+        XCTAssertNil(model.previewingAmbient)
+        XCTAssertTrue(model.ambientMix.isEmpty)
+        h.ambientEngine.finishRamps()
+        XCTAssertTrue(h.ambientEngine.voices.isEmpty)
+    }
+
+    /// A slider reports every step of a drag: each one is heard, only the last is saved, and
+    /// none reschedules the timer.
+    func testVolumeFollowsEveryStepAndSavesOnceItSettles() throws {
+        let h = try ModelHarness()
+        let model = services(h).model
+        model.toggleAmbient("rain")
+        model.startFocus()
+        h.ambientEngine.finishRamps()
+        let scheduled = h.scheduler.scheduledCount
+        for volume in stride(from: 0.5, through: 0.2, by: -0.1) {
+            model.setAmbientVolume(volume)
+        }
+        XCTAssertEqual(h.ambientEngine.ramps["rain"]?.volume ?? 0, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(model.ambientMix.volume, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(h.scheduler.scheduledCount - scheduled, 4, "one pending save per step, nothing else")
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, AmbientMix.defaultVolume, "not saved mid-drag")
+
+        h.scheduler.advance(by: AppModel.settingsSaveDelay)
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.2, accuracy: 0.0001)
+    }
+
+    func testAVolumeStillSettlingIsSavedAtQuit() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.setAmbientVolume(0.3)
+        model.shutdown()
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.3)
+    }
+
     func testStopAllKeepsLevels() throws {
         let h = try ModelHarness()
         let model = services(h).model
