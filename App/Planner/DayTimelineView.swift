@@ -381,6 +381,8 @@ struct TimelineBlockView: View {
     private var background: some View {
         let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
         return ZStack(alignment: .leading) {
+            // Opaque underneath, so the grid and the now line stop at the block's edge.
+            shape.fill(Color(nsColor: .textBackgroundColor))
             shape.fill(tint.opacity(isRunning ? 0.34 : isDraft ? 0.08 : 0.18))
             Rectangle()
                 .fill(tint)
