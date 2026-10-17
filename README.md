@@ -137,29 +137,28 @@ Tests/PomodoroTests/      app test target (snapshot tests)
 Snapshots/                snapshot reference PNGs
 scripts/gen_sounds.py     regenerates App/Resources/Sounds/*.wav (stdlib Python, deterministic)
 scripts/gen_icons.py      regenerates the app icon and menu bar glyph in Assets.xcassets (same)
+scripts/bootstrap-mac.sh  one-time Mac setup
+scripts/check.sh          local build/test loop (core | app | run | all)
 project.yml               XcodeGen spec — the .xcodeproj is generated, never committed
 ```
 
-### Build locally (macOS 14+, Xcode 26)
+### Build locally (macOS 14+, Xcode 26.6)
 
 ```sh
-brew install xcodegen && xcodegen && open Pomodoro.xcodeproj
+scripts/bootstrap-mac.sh     # once: checks Xcode, installs xcodegen + gh, runs the checks
+scripts/check.sh core        # PomodoroCore tests (seconds)
+scripts/check.sh             # Core + app build and tests (what CI runs)
+scripts/check.sh run         # build Debug and launch the app
+open Pomodoro.xcodeproj      # or work in Xcode
 ```
 
-Or from the command line:
-
-```sh
-xcodegen generate
-swift test --package-path Packages/PomodoroCore
-xcodebuild -project Pomodoro.xcodeproj -scheme Pomodoro -destination 'platform=macOS' build test
-```
-
-Re-run `xcodegen` whenever you add or remove files or change `project.yml`.
+The scripts re-run `xcodegen`, so new files and `project.yml` changes are picked up.
+Open PRs as drafts while iterating: CI skips drafts and runs once the PR is marked ready.
 
 ### CI
 
-`.github/workflows/ci.yml` runs on `macos-latest` with Xcode pinned to 26.6 for every PR and
-every push to `main`: XcodeGen → `swift test` for `PomodoroCore` → `xcodebuild build test` →
+`.github/workflows/ci.yml` runs on `macos-latest` with Xcode pinned to 26.6 for every
+non-draft PR and every push to `main`: XcodeGen → `swift test` for `PomodoroCore` → `xcodebuild build test` →
 a check that `LSUIElement` is set in the built `Info.plist`. Artifacts:
 
 - `snapshots`: `reference/` holds the reference PNGs (plus any recorded on this run), and

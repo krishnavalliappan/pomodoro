@@ -1,16 +1,23 @@
 # Agent rules for this repo
 
-Read `PLAN.md` first. It is the spec.
+Read `PLAN.md` first. It is the spec. `HANDOFF.md` has the current state and conventions.
 
 ## Environment facts
-- The dev sandbox is **Linux**. There's no Xcode, no Swift toolchain, and no macOS,
-  so you **cannot build or run the app locally**. Every build and test runs in
-  GitHub Actions (`.github/workflows/ci.yml`, macOS runner).
-- Your feedback loop: push the branch, then `gh pr checks <PR> --watch`. On failure,
-  run `gh run view <run-id> --log-failed` to read compiler and test errors, then fix
-  and push again. Repeat until green. Don't hand back a PR with red CI unless you
-  have documented exactly why.
-- The sandbox has 5 GB RAM shared with other agents. Don't run heavy local jobs.
+- Development happens on a **Mac** with Xcode 26.6 (the version CI pins). First time:
+  `scripts/bootstrap-mac.sh`.
+- **Build and test locally first.** `scripts/check.sh core` runs the Core tests in seconds;
+  `scripts/check.sh` runs Core plus the app build and tests; `scripts/check.sh run`
+  launches a Debug build so you can look at the real app.
+- Open PRs as **drafts** (`gh pr create --draft`). CI skips drafts, so work-in-progress
+  pushes cost nothing. When `scripts/check.sh` is green locally, run `gh pr ready <PR>`;
+  CI then runs once as the merge gate (`build-test` is required on `main`).
+- If CI fails, read it with `gh run view <run-id> --log-failed`, reproduce locally, fix,
+  and push. Don't hand back a PR with red CI unless you've documented exactly why.
+- **Snapshots:** CI renders are the source of truth for references in `Snapshots/`.
+  A snapshot that differs only locally (other macOS/Xcode/display) isn't a failure;
+  record new or changed references from the CI `snapshots` artifact (see README).
+- Several agents may run at once on the same Mac. Use your own git worktree, and run one
+  `xcodebuild` at a time when possible.
 
 ## Git / PR rules
 - Never push to `main`. Work on `issue-<N>-<slug>`, open a PR whose body contains
