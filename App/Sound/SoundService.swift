@@ -74,6 +74,15 @@ final class AVSoundPlayer: SoundPlayer {
     }
 }
 
+/// Cancels its task when released. A `@MainActor` deinit can't touch isolated state on
+/// macOS 14, so dropping the service cancels the cadence by releasing this handle instead.
+private final class CancelOnDeinit: Sendable {
+    private let task: Task<Void, Never>
+    init(_ task: Task<Void, Never>) { self.task = task }
+    func cancel() { task.cancel() }
+    deinit { task.cancel() }
+}
+
 @MainActor
 final class SoundService {
     static let resourceSubdirectory = "Sounds"
@@ -105,7 +114,7 @@ final class SoundService {
 
     private let players: [SoundID: any SoundPlayer]
     private let clock: any TickClock
-    private var tickTask: Task<Void, Never>?
+    private var tickTask: CancelOnDeinit?
 
     init(
         settings: SoundSettings = SoundSettings(),
@@ -149,14 +158,14 @@ final class SoundService {
     /// Call when focus starts or resumes; a no-op while the tick sound is `.none`.
     func startTicking() {
         guard settings.tick != .none, tickTask == nil else { return }
-        tickTask = Task { [weak self, clock = self.clock] in
+        // Weak so the cadence never keeps the service alive; releasing it cancels the task.
+        tickTask = CancelOnDeinit(Task { [weak self, clock = self.clock] in
             await Self.runCadence(clock: clock) {
-                // Checked each beat so the loop ends if the service is released without stopping.
                 guard let self else { return false }
                 self.play(for: .tick)
                 return true
             }
-        }
+        })
     }
 
     /// Call when focus pauses or ends.

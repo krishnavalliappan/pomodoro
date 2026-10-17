@@ -1,6 +1,7 @@
 import AVFoundation
 import PomodoroCore
 import XCTest
+import os
 @testable import Pomodoro
 
 @MainActor
@@ -33,6 +34,48 @@ private final class FakeTickClock: TickClock {
         await Task.yield()
         try Task.checkCancellation()
         now = max(now, deadline) + (lateness.isEmpty ? .zero : lateness.removeFirst())
+    }
+}
+
+/// Sleeps to a deadline that has already passed return at once; any later sleep suspends until
+/// its task is cancelled, so tests can observe cancellation of an in-flight sleep.
+@MainActor
+private final class SuspendingTickClock: TickClock {
+    private struct State {
+        var sleeps = 0
+        var cancellations = 0
+        var cancelled = false
+        var continuation: CheckedContinuation<Void, any Error>?
+    }
+
+    let now = ContinuousClock.now
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    var sleeps: Int { state.withLock { $0.sleeps } }
+    var cancellations: Int { state.withLock { $0.cancellations } }
+
+    func sleep(until deadline: ContinuousClock.Instant) async throws {
+        state.withLock { $0.sleeps += 1 }
+        if deadline <= now { return }
+        let state = self.state
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let alreadyCancelled = state.withLock { s -> Bool in
+                    if s.cancelled { return true }
+                    s.continuation = continuation
+                    return false
+                }
+                if alreadyCancelled { continuation.resume(throwing: CancellationError()) }
+            }
+        } onCancel: {
+            let continuation = state.withLock { s -> CheckedContinuation<Void, any Error>? in
+                s.cancelled = true
+                s.cancellations += 1
+                defer { s.continuation = nil }
+                return s.continuation
+            }
+            continuation?.resume(throwing: CancellationError())
+        }
     }
 }
 
@@ -143,6 +186,43 @@ final class SoundServiceTests: XCTestCase {
         let beats = players[.bowl]?.plays
         for _ in 0..<50 { await Task.yield() }
         XCTAssertEqual(players[.bowl]?.plays, beats, "beat after stopTicking()")
+    }
+
+    func testReleasingServiceCancelsSuspendedSleep() async {
+        let players = fakePlayers()
+        let clock = SuspendingTickClock()
+        var service: SoundService? = SoundService(settings: SoundSettings(tick: .tick), players: players, clock: clock)
+        weak var weakService = service
+        service?.startTicking()
+        // The first beat is due immediately; the second sleep then suspends.
+        await yield { clock.sleeps == 2 }
+        XCTAssertEqual(clock.sleeps, 2)
+        XCTAssertEqual(players[.tick]?.plays, 1)
+        XCTAssertEqual(clock.cancellations, 0)
+
+        service = nil
+        XCTAssertNil(weakService, "the cadence kept the service alive")
+        await yield { clock.cancellations == 1 }
+        XCTAssertEqual(clock.cancellations, 1, "suspended sleep was not cancelled")
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertEqual(clock.sleeps, 2, "slept again after the service was released")
+        XCTAssertEqual(players[.tick]?.plays, 1, "beat after the service was released")
+    }
+
+    func testStopTickingCancelsSuspendedSleep() async {
+        let players = fakePlayers()
+        let clock = SuspendingTickClock()
+        let service = SoundService(settings: SoundSettings(tick: .tick), players: players, clock: clock)
+        service.startTicking()
+        await yield { clock.sleeps == 2 }
+        XCTAssertEqual(clock.sleeps, 2)
+
+        service.stopTicking()
+        await yield { clock.cancellations == 1 }
+        XCTAssertEqual(clock.cancellations, 1, "suspended sleep was not cancelled")
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertEqual(clock.sleeps, 2)
+        XCTAssertEqual(players[.tick]?.plays, 1)
     }
 
     func testChoosingNoneTickStopsTicking() {
