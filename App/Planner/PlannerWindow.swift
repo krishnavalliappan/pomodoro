@@ -17,10 +17,15 @@ struct PlannerWindow: View {
     var model: AppModel
 
     @State private var tab: Tab
+    // Owned here so switching tabs keeps the day and week on show.
+    @State private var timeline: TimelineStore
+    @State private var stats: StatsStore
 
     init(model: AppModel, tab: Tab = .plan) {
         self.model = model
         _tab = State(initialValue: tab)
+        _timeline = State(initialValue: TimelineStore(model: model))
+        _stats = State(initialValue: StatsStore(model: model))
     }
 
     var body: some View {
@@ -36,8 +41,8 @@ struct PlannerWindow: View {
             .background(Color(nsColor: .windowBackgroundColor))
             Divider()
             switch tab {
-            case .plan: PlannerView(model: model)
-            case .stats: StatsView(model: model)
+            case .plan: PlannerView(model: model, timeline: timeline)
+            case .stats: StatsView(model: model, store: stats)
             }
         }
         .background(shortcuts)
