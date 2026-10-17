@@ -22,7 +22,7 @@ struct SessionOverrideTests {
     @Test func overrideIsClamped() {
         let o = SessionOverride(focus: 0, break: 999 * 60)
         #expect(o.focus == 60)
-        #expect(o.breakDuration == 180 * 60)
+        #expect(o.breakDuration == TimeInterval(180 * 60))
     }
 
     @Test func parsesChipInput() {

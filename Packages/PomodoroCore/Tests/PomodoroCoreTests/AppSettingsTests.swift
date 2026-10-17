@@ -154,7 +154,7 @@ struct PresetManagementTests {
         deep.profile.focusDuration = 60 * 60
         try s.updatePreset(deep)
         #expect(s.preset(id: Preset.deep.id)?.name == "Deep work")
-        #expect(s.preset(id: Preset.deep.id)?.profile.focusDuration == 60 * 60)
+        #expect(s.preset(id: Preset.deep.id)?.profile.focusDuration == TimeInterval(60 * 60))
         #expect(throws: AppSettings.PresetError.notFound) {
             try s.updatePreset(Preset(name: "ghost", profile: .classic))
         }

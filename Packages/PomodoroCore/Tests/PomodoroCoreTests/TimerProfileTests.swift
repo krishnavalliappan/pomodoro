@@ -12,7 +12,7 @@ struct TimerProfileTests {
         #expect(p.autoStartBreaks == false)
         #expect(p.autoStartFocus == false)
         #expect(p.flowMode == true)
-        #expect(p.nudgeInterval == 10 * 60)
+        #expect(p.nudgeInterval == TimeInterval(10 * 60))
         #expect(p.summary == "25/5/15")
     }
 
