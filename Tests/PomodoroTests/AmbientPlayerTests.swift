@@ -508,7 +508,7 @@ final class AppModelAmbientTests: XCTestCase {
         model.startFocus()
         h.ambientEngine.finishRamps()
         let scheduled = h.scheduler.scheduledCount
-        for volume in stride(from: 0.5, through: 0.2, by: -0.1) {
+        for volume in [0.5, 0.4, 0.3, 0.2] {
             model.setAmbientVolume(volume)
         }
         XCTAssertEqual(h.ambientEngine.ramps["rain"]?.volume ?? 0, 0.2, accuracy: 0.0001)
@@ -518,6 +518,20 @@ final class AppModelAmbientTests: XCTestCase {
 
         h.scheduler.advance(by: AppModel.settingsSaveDelay)
         XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.2, accuracy: 0.0001)
+    }
+
+    /// Another setting saved mid-drag takes the volume with it, and the pending save, now moot, never fires.
+    func testASettingSavedWhileTheVolumeSettlesKeepsBoth() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.setAmbientVolume(0.3)
+        model.updateSettings { $0.menuBarDisplay = .iconOnly }
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.3)
+        let fired = h.scheduler.firedCount
+        h.scheduler.advance(by: AppModel.settingsSaveDelay)
+        XCTAssertEqual(h.scheduler.firedCount, fired, "the pending save was cancelled")
+        XCTAssertEqual(h.settingsStore.load().menuBarDisplay, .iconOnly)
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.3)
     }
 
     func testAVolumeStillSettlingIsSavedAtQuit() throws {
