@@ -136,7 +136,7 @@ struct StatsTests {
         let ofMondayWeek = mondayFirst.dailyFocus(sunday, in: mondayFirst.week(containing: day(2026, 10, 17)))
         #expect(ofSundayWeek.reduce(0) { $0 + $1.focusedSeconds } == 0)
         #expect(ofMondayWeek.reduce(0) { $0 + $1.focusedSeconds } == 50 * 60)
-        #expect(ofMondayWeek.last?.focusedSeconds == 50 * 60)
+        #expect(ofMondayWeek.last?.focusedSeconds == TimeInterval(50 * 60))
     }
 
     // MARK: - Task actuals

@@ -65,7 +65,7 @@ struct StatsRepositoryTests {
 
         try session(day: 16, 9)
         let second = await iterator.next()
-        #expect(second?.totalSeconds == 25 * 60)
+        #expect(second?.totalSeconds == TimeInterval(25 * 60))
         #expect(second?.streak == Streak(current: 1, best: 1))
     }
 }
