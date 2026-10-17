@@ -104,6 +104,11 @@ ad-hoc signs and publishes it. `MARKETING_VERSION` and `Version.current` are alr
 | #44 Sounds tab UI | — | unblocked once #47 merges. Fills the Sounds tab placeholder from #46 |
 | #45 Subtle animations | — | unblocked (#46 merged) |
 
+**Do this first: #49, a flaky idle snapshot.** After #46 merged, `main` CI failed once on
+`testIdle`. The only difference was the AppKit "Custom" field's placeholder text sitting
+1px lower. Fix it by making Custom a SwiftUI chip that becomes a text field only when
+clicked, and add a pixel-stability loop. Until it's fixed, any PR can hit this at random.
+
 **PR #47: what's done and what's left**
 
 Done (branch `issue-42-ambient`):
