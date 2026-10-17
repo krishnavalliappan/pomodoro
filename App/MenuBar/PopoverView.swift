@@ -423,7 +423,7 @@ struct PresetRow: View {
                     .textFieldStyle(.roundedBorder)
                     // AppKit sizes the field itself, and now and then a point taller; the popover
                     // takes its content's height, so that point moved the whole layout (#38).
-                    .frame(width: 76, height: 25)
+                    .frame(width: 76, height: 23)
                     .overlay(
                         RoundedRectangle(cornerRadius: 5)
                             .strokeBorder(Color(nsColor: .systemRed), lineWidth: isInvalid ? 1 : 0)
