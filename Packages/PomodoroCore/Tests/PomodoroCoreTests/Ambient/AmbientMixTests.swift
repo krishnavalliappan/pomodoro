@@ -24,6 +24,16 @@ struct AmbientMixTests {
         #expect(mix.sounds == ["forest"])
     }
 
+    @Test func removeAllKeepsLevelsAndVolume() {
+        var mix = AmbientMix(sounds: ["rain", "forest"], levels: ["rain": 0.5], volume: 0.4)
+        mix.removeAll()
+        #expect(mix.isEmpty)
+        #expect(mix.level(for: "rain") == 0.5)
+        #expect(mix.volume == 0.4)
+        mix.toggle("rain")
+        #expect(mix.volume(for: "rain") == 0.2, "a sound coming back plays at its old level")
+    }
+
     @Test func layersPastTheLimitDropTheOldest() {
         var mix = AmbientMix()
         for id in ["a", "b", "c", "d", "e"] { mix.toggle(id) }

@@ -54,6 +54,13 @@ struct PopoverTimerTab: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+            if model.isAmbientPlaying {
+                Image(systemName: "waveform")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PopoverStyle.accent)
+                    .help("Ambient sounds playing")
+                    .accessibilityLabel("Ambient sounds playing")
+            }
             Spacer(minLength: 8)
             RoundDots(cycle: model.longBreakEvery, stage: stage)
         }

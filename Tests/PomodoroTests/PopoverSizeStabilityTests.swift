@@ -25,6 +25,17 @@ final class PopoverSizeStabilityTests: XCTestCase {
         try assertStableSize(.sounds) { _ in }
     }
 
+    func testSoundsWithAMixSizeIsStable() throws {
+        try assertStableSize(.sounds, seed: { _ in }, prepare: { _, model in
+            model.toggleAmbient("rain")
+            model.toggleAmbient("fireplace")
+        })
+    }
+
+    func testSoundsPreviewSizeIsStable() throws {
+        try assertStableSize(.sounds, seed: { _ in }, prepare: { _, model in model.tapAmbient("waves") })
+    }
+
     func testOverrideSizeIsStable() throws {
         try assertStableSize(.timer, seed: { _ in }, prepare: { _, model in XCTAssertTrue(model.applyOverride("50/10")) })
     }

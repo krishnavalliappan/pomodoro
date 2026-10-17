@@ -6,6 +6,8 @@ struct SoundSettingsView: View {
 
     var model: AppModel
 
+    @State private var showsCredits = false
+
     var body: some View {
         Form {
             Section {
@@ -27,8 +29,32 @@ struct SoundSettingsView: View {
                     .frame(width: 220)
                 }
             }
+            Section("Ambient") {
+                Picker("During breaks", selection: Binding(
+                    get: { model.ambientPolicy.duringBreaks },
+                    set: { model.setAmbientBreakBehavior($0) }
+                )) {
+                    ForEach(AmbientBreakBehavior.allCases, id: \.self) { behavior in
+                        Text(Self.title(behavior)).tag(behavior)
+                    }
+                }
+                LabeledContent("Sound credits") {
+                    Button("Show…") { showsCredits = true }
+                }
+            }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showsCredits) {
+            SoundCreditsView(sounds: model.availableAmbientSounds) { showsCredits = false }
+        }
+    }
+
+    static func title(_ behavior: AmbientBreakBehavior) -> String {
+        switch behavior {
+        case .off: "Pause"
+        case .lower: "Play quieter"
+        case .keep: "Keep playing"
+        }
     }
 
     private func row(for event: SoundEvent) -> some View {

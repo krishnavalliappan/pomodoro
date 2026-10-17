@@ -7,7 +7,6 @@ struct GeneralSettingsView: View {
     var launchAtLogin: LaunchAtLogin
     var calendar = Calendar.current
 
-    @State private var showsCredits = false
 
     var body: some View {
         Form {
@@ -26,13 +25,7 @@ struct GeneralSettingsView: View {
             }
             Section {
                 LabeledContent("About", value: "Pomodoro \(Version.current.description)")
-                LabeledContent("Sound credits") {
-                    Button("Show…") { showsCredits = true }
-                }
             }
-        }
-        .sheet(isPresented: $showsCredits) {
-            SoundCreditsView(sounds: model.availableAmbientSounds) { showsCredits = false }
         }
         .formStyle(.grouped)
         // The user can change the login item in System Settings while this window is open.

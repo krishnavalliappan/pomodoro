@@ -58,6 +58,14 @@ final class AmbientPlayer {
 
     var isAudible: Bool { targets.values.contains { $0 > 0 } }
 
+    /// Whether anything should be heard now. Unlike `isAudible`, built from observed state only,
+    /// so views can follow it.
+    var isPlaying: Bool { !desiredVolumes().isEmpty }
+
+    /// Whether the timer has the mix playing; when it doesn't, a sound switched on is only heard
+    /// as a preview.
+    var timerPlaysMix: Bool { timerLevel > 0 }
+
     // MARK: - Inputs
 
     func update(with engine: TimerEngine) {

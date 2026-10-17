@@ -59,6 +59,11 @@ public struct AmbientMix: Hashable, Sendable {
         }
     }
 
+    /// Switches every sound off. Levels stay, for when each comes back.
+    public mutating func removeAll() {
+        sounds.removeAll()
+    }
+
     public mutating func setLevel(_ level: Double, for id: SoundID) {
         let level = level.isFinite ? Self.clamp(level) : Self.defaultLevel
         levels[id] = level == Self.defaultLevel ? nil : level

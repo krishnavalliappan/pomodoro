@@ -455,4 +455,126 @@ final class AppModelAmbientTests: XCTestCase {
         h.ambientEngine.finishRamps()
         XCTAssertFalse(h.ambientEngine.isRunning)
     }
+
+    // MARK: Sounds tab
+
+    func testTappingWhileIdleSavesAndPreviews() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.tapAmbient("rain")
+        XCTAssertEqual(h.settingsStore.load().ambient.sounds, ["rain"], "saved")
+        XCTAssertEqual(model.previewingAmbient, "rain", "heard at once")
+        XCTAssertTrue(model.isAmbientPlaying)
+
+        model.tapAmbient("forest")
+        XCTAssertEqual(model.previewingAmbient, "forest", "the newest tap is the one previewed")
+
+        model.tapAmbient("forest")
+        XCTAssertEqual(model.ambientMix.sounds, ["rain"])
+        XCTAssertNil(model.previewingAmbient, "switching off stops its own preview")
+        XCTAssertFalse(model.isAmbientPlaying, "idle: the mix waits for focus")
+    }
+
+    func testTappingDuringFocusPlaysWithoutAPreview() throws {
+        let h = try ModelHarness()
+        let model = services(h).model
+        model.startFocus()
+        model.tapAmbient("rain")
+        XCTAssertNil(model.previewingAmbient)
+        XCTAssertEqual(h.ambientEngine.voices, ["rain"])
+        XCTAssertTrue(model.isAmbientPlaying)
+    }
+
+    /// A preview started while idle would otherwise outlast its tile being switched off in focus.
+    func testSwitchingOffDuringFocusStopsAPreviewFromBefore() throws {
+        let h = try ModelHarness()
+        let model = services(h).model
+        model.tapAmbient("rain")
+        XCTAssertEqual(model.previewingAmbient, "rain")
+        model.startFocus()
+        model.tapAmbient("rain")
+        XCTAssertNil(model.previewingAmbient)
+        XCTAssertTrue(model.ambientMix.isEmpty)
+        h.ambientEngine.finishRamps()
+        XCTAssertTrue(h.ambientEngine.voices.isEmpty)
+    }
+
+    /// A slider reports every step of a drag: each one is heard, only the last is saved, and
+    /// none reschedules the timer.
+    func testVolumeFollowsEveryStepAndSavesOnceItSettles() throws {
+        let h = try ModelHarness()
+        let model = services(h).model
+        model.toggleAmbient("rain")
+        model.startFocus()
+        h.ambientEngine.finishRamps()
+        let scheduled = h.scheduler.scheduledCount
+        for volume in [0.5, 0.4, 0.3, 0.2] {
+            model.setAmbientVolume(volume)
+        }
+        XCTAssertEqual(h.ambientEngine.ramps["rain"]?.volume ?? 0, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(model.ambientMix.volume, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(h.scheduler.scheduledCount - scheduled, 4, "one pending save per step, nothing else")
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, AmbientMix.defaultVolume, "not saved mid-drag")
+
+        h.scheduler.advance(by: AppModel.settingsSaveDelay)
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.2, accuracy: 0.0001)
+    }
+
+    /// Another setting saved mid-drag takes the volume with it, and the pending save, now moot, never fires.
+    func testASettingSavedWhileTheVolumeSettlesKeepsBoth() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.setAmbientVolume(0.3)
+        model.updateSettings { $0.menuBarDisplay = .iconOnly }
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.3)
+        let fired = h.scheduler.firedCount
+        h.scheduler.advance(by: AppModel.settingsSaveDelay)
+        XCTAssertEqual(h.scheduler.firedCount, fired, "the pending save was cancelled")
+        XCTAssertEqual(h.settingsStore.load().menuBarDisplay, .iconOnly)
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.3)
+    }
+
+    func testAVolumeStillSettlingIsSavedAtQuit() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.setAmbientVolume(0.3)
+        model.shutdown()
+        XCTAssertEqual(h.settingsStore.load().ambient.volume, 0.3)
+    }
+
+    func testStopAllKeepsLevels() throws {
+        let h = try ModelHarness()
+        let model = services(h).model
+        model.setAmbientLevel(0.5, for: "rain")
+        model.toggleAmbient("rain")
+        model.toggleAmbient("waves")
+        model.startFocus()
+        XCTAssertTrue(model.isAmbientPlaying)
+
+        model.stopAllAmbient()
+        h.ambientEngine.finishRamps()
+        XCTAssertTrue(h.settingsStore.load().ambient.isEmpty, "saved")
+        XCTAssertEqual(model.ambientMix.level(for: "rain"), 0.5)
+        XCTAssertFalse(model.isAmbientPlaying)
+        XCTAssertFalse(h.ambientEngine.isRunning)
+    }
+
+    func testCaption() {
+        let sounds = AmbientLibrary.bundled(in: Bundle(for: AppModel.self)).sounds
+        XCTAssertEqual(PopoverSoundsTab.caption(mix: AmbientMix(), sounds: sounds, isPlaying: false), "Tap sounds to mix them. They play during focus.")
+        let mix = AmbientMix(sounds: ["rain", "forest"])
+        XCTAssertEqual(PopoverSoundsTab.caption(mix: mix, sounds: sounds, isPlaying: false), "Rain + Forest · plays during focus")
+        XCTAssertEqual(PopoverSoundsTab.caption(mix: mix, sounds: sounds, isPlaying: true), "Rain + Forest · playing")
+    }
+
+    /// The model with the update seam wired, as at launch, so the timer drives the player.
+    private func services(_ h: ModelHarness) -> AppServices {
+        AppServices(
+            notifications: NotificationService(center: FakeNotificationCenter(clock: h.clock), clock: h.clock, pause: { await Task.yield() }),
+            appNap: AppNapGuard(scheduler: FakeActivityScheduler()),
+            ambient: h.makeAmbientPlayer(),
+            makeModel: { h.makeModel(ambient: $0, onEngineUpdate: $1) },
+            makeSystemEvents: { SystemEvents(workspaceCenter: NotificationCenter(), distributedCenter: NotificationCenter(), localCenter: NotificationCenter(), reconcile: $0) }
+        )
+    }
 }

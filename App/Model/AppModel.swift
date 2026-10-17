@@ -87,6 +87,8 @@ final class AppModel {
     @ObservationIgnored private var refreshTimer: (any ScheduledTimer)?
     @ObservationIgnored private var dayMonitor: DayChangeMonitor?
     @ObservationIgnored private var blockBoundaryTimer: (any ScheduledTimer)?
+    /// A save held back while a control is still moving; see `adjustAmbient`.
+    @ObservationIgnored private var pendingSettingsSave: (any ScheduledTimer)?
     /// Open planner timelines; a count because a day change starts the new one's observation
     /// before the old one's has ended.
     @ObservationIgnored private var plannerViewers = 0
@@ -362,17 +364,41 @@ final class AppModel {
         change(&updated)
         guard updated != settings else { return }
         settings = updated
+        save(updated)
+        sound.settings = updated.sounds
+        ambient.configure(mix: updated.ambient, policy: updated.ambientPolicy)
+        // A new nudge interval or auto-start moves the boundary, so this takes the same path as an action.
+        handle([])
+    }
+
+    static let settingsSaveDelay: TimeInterval = 0.5
+
+    /// For a control that reports many values a second, e.g. a volume slider: the player follows
+    /// each one, and the settings save once it settles. The mix never moves the timer, so nothing
+    /// is rescheduled.
+    func adjustAmbient(_ change: (inout AmbientMix) -> Void) {
+        var updated = settings
+        change(&updated.ambient)
+        guard updated != settings else { return }
+        settings = updated
+        ambient.configure(mix: updated.ambient, policy: updated.ambientPolicy)
+        pendingSettingsSave?.cancel()
+        pendingSettingsSave = scheduler.schedule(at: clock.now + Self.settingsSaveDelay) { [weak self] in
+            guard let self else { return }
+            save(settings)
+        }
+    }
+
+    private func save(_ settings: AppSettings) {
+        pendingSettingsSave?.cancel()
+        pendingSettingsSave = nil
         do {
-            try settingsStore.save(updated)
+            try settingsStore.save(settings)
             if settingsSaveError != nil { settingsSaveError = nil }
         } catch {
             Self.log.error("saving settings failed: \(String(describing: error), privacy: .public)")
             if let error = error as? SettingsStoreError, error != settingsSaveError { settingsSaveError = error }
         }
-        sound.settings = updated.sounds
-        ambient.configure(mix: updated.ambient, policy: updated.ambientPolicy)
-        // A new nudge interval or auto-start moves the boundary, so this takes the same path as an action.
-        handle([])
     }
 
     func dismissSettingsSaveError() {
@@ -382,6 +408,7 @@ final class AppModel {
     /// Cancels pending timers and the tick. The run loop would otherwise keep a one-shot timer
     /// alive after the model is gone.
     func shutdown() {
+        if pendingSettingsSave != nil { save(settings) }
         dayMonitor?.stop()
         dayMonitor = nil
         boundaryTimer?.cancel()
