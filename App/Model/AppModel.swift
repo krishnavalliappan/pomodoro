@@ -117,9 +117,6 @@ final class AppModel {
     var pendingOneOff: SessionOneOff? { planner.pending }
     var pendingOverride: SessionOverride? { planner.pendingOverride }
 
-    /// The profile a pending one-off would run on, for its "once" pill.
-    var pendingOneOffProfile: TimerProfile? { planner.pending?.profile(in: settings) }
-
     /// What an idle readout shows: the next focus, including any pending one-off.
     var nextFocusDuration: TimeInterval {
         planner.previewProfile(in: settings).focusDuration

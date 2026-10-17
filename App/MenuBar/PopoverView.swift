@@ -97,14 +97,17 @@ struct PopoverView: View {
         }
     }
 
+    /// A break belongs to the round it follows, so the number only moves when the next focus can start.
     private var roundText: String {
         let cycle = model.longBreakEvery
         let done = snapshot.completedFocusesInCycle
-        switch snapshot.phase {
-        case .idle, .focus: return "Round \(min(done + 1, cycle)) of \(cycle)"
-        case .shortBreak: return "\(min(done, cycle)) of \(cycle) done"
-        case .longBreak: return "Cycle done"
-        }
+        let round =
+            switch snapshot.phase {
+            case .idle, .focus: done + 1
+            case .shortBreak: max(done, 1)
+            case .longBreak: cycle
+            }
+        return "Round \(min(round, cycle)) of \(cycle)"
     }
 
     @ViewBuilder
@@ -395,8 +398,9 @@ struct PresetRow: View {
                 .help(isDefault ? "\(preset.displayName), the default" : "\(preset.displayName) for the next focus only")
             }
             Spacer(minLength: 0)
-            if let pill = pillTitle {
-                Chip(title: "\(pill) once", symbol: "xmark", emphasis: .selected, tint: tint) {
+            // A queued preset shows as its filled chip; only a typed one-off, which has no chip, gets a pill.
+            if case .custom(let override) = model.pendingOneOff {
+                Chip(title: "\(Self.summary(override)) once", symbol: "xmark", emphasis: .selected, tint: tint) {
                     model.clearOneOff()
                 }
                 .help("For the next focus and its break only. Click to clear.")
@@ -419,14 +423,6 @@ struct PresetRow: View {
         .font(.callout)
     }
 
-    private var pillTitle: String? {
-        switch model.pendingOneOff {
-        case .custom(let override): Self.summary(override)
-        case .preset: model.pendingOneOffProfile.map(Self.shortSummary)
-        case nil: nil
-        }
-    }
-
     /// "25/5": focus and short break, in minutes.
     static func shortSummary(_ profile: TimerProfile) -> String {
         "\(Int((profile.focusDuration / 60).rounded()))/\(Int((profile.shortBreakDuration / 60).rounded()))"
@@ -443,6 +439,7 @@ struct Chip: View {
         case none
         /// The default preset: outlined, so it stays distinguishable from a pending one-off.
         case outlined
+        /// A pending one-off, the only emphasis with a fill.
         case selected
     }
 
@@ -453,6 +450,14 @@ struct Chip: View {
     var action: @MainActor () -> Void
 
     private var isSelected: Bool { emphasis == .selected }
+
+    private var border: AnyShapeStyle {
+        switch emphasis {
+        case .none: AnyShapeStyle(.tertiary)
+        case .outlined: AnyShapeStyle(tint.opacity(0.8))
+        case .selected: AnyShapeStyle(tint.opacity(0.5))
+        }
+    }
 
     var body: some View {
         Button(action: action) {
@@ -465,10 +470,8 @@ struct Chip: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .foregroundStyle(isSelected ? tint : .primary)
-            .background(
-                Capsule().fill(isSelected ? AnyShapeStyle(tint.opacity(0.16)) : AnyShapeStyle(.quaternary))
-            )
-            .overlay(Capsule().strokeBorder(emphasis == .none ? .clear : tint.opacity(isSelected ? 0.5 : 0.8)))
+            .background(Capsule().fill(isSelected ? tint.opacity(0.16) : .clear))
+            .overlay(Capsule().strokeBorder(border))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

@@ -238,6 +238,12 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.snapshot.phase, .focus)
         XCTAssertEqual(model.snapshot.plannedDuration, 40 * 60)
         XCTAssertNil(model.pendingOneOff)
+        h.scheduler.advance(by: 40 * 60)
+        model.startBreak()
+        XCTAssertEqual(model.snapshot.plannedDuration, 8 * 60, "its break follows")
+        model.skip()
+        XCTAssertEqual(model.snapshot.phase, .focus)
+        XCTAssertEqual(model.snapshot.plannedDuration, focus, "and the next focus is back on the default")
     }
 
     func testOneOffChainsThroughAutoStartsAndStopsAtTheNextFocus() throws {
