@@ -49,12 +49,12 @@ extension FocusSession: FetchableRecord, PersistableRecord {
         .timeIntervalSinceReferenceDate
     }
 
-    enum Columns {
-        static let id = Column(CodingKeys.id)
-        static let taskID = Column(CodingKeys.taskID)
-        static let blockID = Column(CodingKeys.blockID)
-        static let start = Column(CodingKeys.start)
-        static let end = Column(CodingKeys.end)
-        static let completed = Column(CodingKeys.completed)
+    public enum Columns {
+        public static let id = Column(CodingKeys.id)
+        public static let taskID = Column(CodingKeys.taskID)
+        public static let blockID = Column(CodingKeys.blockID)
+        public static let start = Column(CodingKeys.start)
+        public static let end = Column(CodingKeys.end)
+        public static let completed = Column(CodingKeys.completed)
     }
 }

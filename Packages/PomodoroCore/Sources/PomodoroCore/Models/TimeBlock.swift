@@ -45,10 +45,10 @@ extension TimeBlock: FetchableRecord, PersistableRecord {
         .timeIntervalSinceReferenceDate
     }
 
-    enum Columns {
-        static let id = Column(CodingKeys.id)
-        static let taskID = Column(CodingKeys.taskID)
-        static let start = Column(CodingKeys.start)
-        static let duration = Column(CodingKeys.duration)
+    public enum Columns {
+        public static let id = Column(CodingKeys.id)
+        public static let taskID = Column(CodingKeys.taskID)
+        public static let start = Column(CodingKeys.start)
+        public static let duration = Column(CodingKeys.duration)
     }
 }

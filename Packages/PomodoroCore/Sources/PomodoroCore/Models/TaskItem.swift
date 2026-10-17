@@ -51,12 +51,12 @@ extension TaskItem: FetchableRecord, PersistableRecord {
         .timeIntervalSinceReferenceDate
     }
 
-    enum Columns {
-        static let id = Column(CodingKeys.id)
-        static let isDone = Column(CodingKeys.isDone)
-        static let doneAt = Column(CodingKeys.doneAt)
-        static let sortIndex = Column(CodingKeys.sortIndex)
-        static let createdAt = Column(CodingKeys.createdAt)
-        static let scheduledDay = Column(CodingKeys.scheduledDay)
+    public enum Columns {
+        public static let id = Column(CodingKeys.id)
+        public static let isDone = Column(CodingKeys.isDone)
+        public static let doneAt = Column(CodingKeys.doneAt)
+        public static let sortIndex = Column(CodingKeys.sortIndex)
+        public static let createdAt = Column(CodingKeys.createdAt)
+        public static let scheduledDay = Column(CodingKeys.scheduledDay)
     }
 }
