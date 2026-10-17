@@ -79,6 +79,50 @@ struct TimeBlockRepositoryTests {
         #expect(try db.blocks.fetch(id: original.id) == resized)
     }
 
+    /// A rename saved after a move must not put the old start back, and vice versa.
+    @Test func editTouchesOnlyItsFields() throws {
+        let task = try db.tasks.create(title: "Write", createdAt: Fixture.date(day: 17))
+        let original = try block("Untitled", 10, minutes: 60)
+        try db.blocks.move(id: original.id, to: Fixture.date(day: 17, 11))
+        try db.blocks.resize(id: original.id, duration: 5400)
+
+        let renamed = try db.blocks.edit(id: original.id, TimeBlockEdit(title: "Planning"))
+        #expect(renamed.title == "Planning")
+        #expect(renamed.start == Fixture.date(day: 17, 11))
+        #expect(renamed.duration == 5400)
+
+        try db.blocks.edit(id: original.id, TimeBlockEdit(taskID: .some(task.id), color: .some("green")))
+        try db.blocks.edit(id: original.id, TimeBlockEdit(start: Fixture.date(day: 17, 12)))
+        let saved = try #require(try db.blocks.fetch(id: original.id))
+        #expect(saved == TimeBlock(
+            id: original.id, taskID: task.id, title: "Planning", start: Fixture.date(day: 17, 12), duration: 5400, color: "green"
+        ))
+
+        try db.blocks.edit(id: original.id, TimeBlockEdit(taskID: .some(nil), color: .some(nil)))
+        let cleared = try #require(try db.blocks.fetch(id: original.id))
+        #expect(cleared.taskID == nil && cleared.color == nil && cleared.title == "Planning")
+    }
+
+    @Test func editValidatesAndNeedsTheRow() throws {
+        let original = try block("B", 10)
+        #expect(throws: StoreError.invalidDuration(0)) { try db.blocks.edit(id: original.id, TimeBlockEdit(duration: 0)) }
+        let ghost = UUID()
+        #expect(throws: StoreError.notFound(ghost)) { try db.blocks.edit(id: ghost, TimeBlockEdit(title: "Ghost")) }
+        #expect(TimeBlockEdit().isEmpty)
+        #expect(!TimeBlockEdit(color: .some(nil)).isEmpty)
+    }
+
+    @Test func nextBoundaryIsTheNextStartOrEndToday() throws {
+        try block("A", 9, minutes: 60)
+        try block("B", 9, 30, minutes: 120)
+        try block("Tomorrow", day: 18, 8)
+        #expect(try db.blocks.nextBoundary(after: Fixture.date(day: 17, 8)) == Fixture.date(day: 17, 9))
+        #expect(try db.blocks.nextBoundary(after: Fixture.date(day: 17, 9)) == Fixture.date(day: 17, 9, 30), "a start at now has passed")
+        #expect(try db.blocks.nextBoundary(after: Fixture.date(day: 17, 9, 45)) == Fixture.date(day: 17, 10))
+        #expect(try db.blocks.nextBoundary(after: Fixture.date(day: 17, 10)) == Fixture.date(day: 17, 11, 30))
+        #expect(try db.blocks.nextBoundary(after: Fixture.date(day: 17, 11, 30)) == nil, "tomorrow's blocks wait for tomorrow")
+    }
+
     @Test func blocksOnDayIncludesOverlapsAndSortsByStart() throws {
         let overnight = try block("Overnight", day: 16, 23, 30, minutes: 60)
         let late = try block("Late", 22)

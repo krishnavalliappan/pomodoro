@@ -35,6 +35,7 @@ struct EstimateDots: View {
     var estimate: Int?
     var actual: Int
     var size: CGFloat = 6
+    var unfilled = AnyShapeStyle(.quaternary)
 
     private var total: Int { max(estimate ?? 0, actual) }
     private var isOver: Bool { estimate.map { actual > $0 } ?? false }
@@ -72,7 +73,7 @@ struct EstimateDots: View {
     }
 
     private func fill(at index: Int) -> AnyShapeStyle {
-        guard index < actual else { return AnyShapeStyle(.quaternary) }
+        guard index < actual else { return unfilled }
         let over = estimate.map { index >= $0 } ?? false
         return AnyShapeStyle(over ? PhaseStyle.overtimeTint : PhaseStyle.focusTint)
     }
