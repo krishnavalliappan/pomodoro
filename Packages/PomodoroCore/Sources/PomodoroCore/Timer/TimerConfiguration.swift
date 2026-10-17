@@ -46,3 +46,19 @@ public struct TimerConfiguration: Sendable, Equatable, Codable {
         }
     }
 }
+
+extension TimerConfiguration {
+    /// Field for field: a profile is the validated, user-facing form of a configuration.
+    public init(profile: TimerProfile) {
+        self.init(
+            focusDuration: profile.focusDuration,
+            shortBreakDuration: profile.shortBreakDuration,
+            longBreakDuration: profile.longBreakDuration,
+            longBreakEvery: profile.longBreakEvery,
+            flowMode: profile.flowMode,
+            nudgeInterval: profile.nudgeInterval,
+            autoStartBreaks: profile.autoStartBreaks,
+            autoStartFocus: profile.autoStartFocus
+        )
+    }
+}

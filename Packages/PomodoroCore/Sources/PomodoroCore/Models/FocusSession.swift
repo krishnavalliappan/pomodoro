@@ -79,3 +79,21 @@ extension FocusSession: FetchableRecord, PersistableRecord {
         public static let completed = Column(CodingKeys.completed)
     }
 }
+
+extension FocusSession {
+    /// Logs a focus the timer engine just finished.
+    public init(record: FocusSessionRecord, blockID: UUID? = nil) {
+        self.init(
+            id: record.id,
+            taskID: record.taskID,
+            blockID: blockID,
+            start: record.startedAt,
+            end: record.endedAt,
+            plannedSeconds: record.plannedDuration,
+            activeSeconds: record.activeDuration,
+            pausedSeconds: record.pausedDuration,
+            overtimeSeconds: record.overtime,
+            completed: record.outcome == .completed
+        )
+    }
+}
