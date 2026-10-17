@@ -43,12 +43,60 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
 
-    static func symbol(for snapshot: TimerSnapshot) -> String {
+    /// Opt-in: draw the tomato glyph beside the time instead of the 🍅/☕ emoji. Read from
+    /// defaults so Settings can expose it without this file depending on the settings model.
+    static let glyphBesideTimeKey = "menuBarGlyphBesideTime"
+
+    enum Icon: Equatable {
+        case tomato
+        case symbol(String)
+
+        var image: NSImage? {
+            let image = switch self {
+            case .tomato: NSImage(named: "MenuBarIcon")
+            case .symbol(let name): NSImage(systemSymbolName: name, accessibilityDescription: "Pomodoro")
+            }
+            image?.isTemplate = true
+            return image
+        }
+    }
+
+    static func icon(for snapshot: TimerSnapshot) -> Icon {
         switch snapshot.phase {
-        case .idle: return "timer"
-        case _ where snapshot.status == .paused: return "pause.circle"
-        case .focus: return TimerReadout(snapshot).isOvertime ? "exclamationmark.circle" : "timer.circle.fill"
-        case .shortBreak, .longBreak: return "cup.and.saucer.fill"
+        case .idle: return .tomato
+        case _ where snapshot.status == .paused: return .symbol("pause.circle")
+        case .focus: return TimerReadout(snapshot).isOvertime ? .symbol("exclamationmark.circle") : .tomato
+        case .shortBreak, .longBreak: return .symbol("cup.and.saucer.fill")
+        }
+    }
+
+    /// SF Symbol names for `MenuBarSettingsView`'s preview, which predates the asset glyph.
+    static func symbol(for snapshot: TimerSnapshot) -> String {
+        switch icon(for: snapshot) {
+        case .tomato: return snapshot.phase == .idle ? "timer" : "timer.circle.fill"
+        case .symbol(let name): return name
+        }
+    }
+
+    /// Swaps the title's leading emoji for a template image, so the glyph follows the menu bar's tint.
+    static func glyphTitle(_ title: String) -> (icon: Icon?, text: String) {
+        for (emoji, icon) in [("🍅 ", Icon.tomato), ("☕ ", Icon.symbol("cup.and.saucer.fill"))] where title.hasPrefix(emoji) {
+            return (icon, String(title.dropFirst(emoji.count)))
+        }
+        return (nil, title)
+    }
+
+    /// Styles a status bar button; static so snapshot tests can render a plain `NSButton` the same way.
+    static func apply(title: String?, icon: Icon, glyphBesideTime: Bool, to button: NSButton) {
+        if let title {
+            let (glyph, text) = glyphBesideTime ? glyphTitle(title) : (nil, title)
+            button.image = glyph?.image
+            button.imagePosition = .imageLeading
+            button.attributedTitle = NSAttributedString(string: text, attributes: [.font: titleFont])
+        } else {
+            button.attributedTitle = NSAttributedString()
+            button.image = icon.image
+            button.imagePosition = .imageOnly
         }
     }
 
@@ -56,27 +104,20 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     private func observeStatus() {
         withObservationTracking {
-            render(title: model.statusTitle, symbol: Self.symbol(for: model.snapshot))
+            render(title: model.statusTitle, icon: Self.icon(for: model.snapshot))
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeStatus() }
         }
     }
 
-    private func render(title: String?, symbol: String) {
+    private func render(title: String?, icon: Icon) {
         guard let button = statusItem.button else { return }
-        // The model changes every second while visible; skip AppKit work when the text didn't.
-        let key = title ?? "symbol:" + symbol
+        let glyphBesideTime = UserDefaults.standard.bool(forKey: Self.glyphBesideTimeKey)
+        // The model changes every second while visible; skip AppKit work when the output didn't.
+        let key = "\(title ?? "")|\(icon)|\(glyphBesideTime)"
         guard key != renderedKey else { return }
         renderedKey = key
-        if let title {
-            button.image = nil
-            button.attributedTitle = NSAttributedString(string: title, attributes: [.font: Self.titleFont])
-        } else {
-            button.attributedTitle = NSAttributedString()
-            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Pomodoro")
-            image?.isTemplate = true
-            button.image = image
-        }
+        Self.apply(title: title, icon: icon, glyphBesideTime: glyphBesideTime, to: button)
     }
 
     // MARK: - Popover
