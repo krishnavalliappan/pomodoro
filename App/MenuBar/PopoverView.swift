@@ -495,8 +495,8 @@ struct Chip: View {
     }
 }
 
-/// Today's dots, focus time, count and streak on one line. Narrower variants drop the label,
-/// then shorten the streak, then drop the dots, so the row never wraps or grows taller.
+/// "Today", its dots, focus time, count and streak on one line. When it's too narrow the dots go,
+/// then the text shortens; the label always stays, so the row never wraps or grows taller.
 struct TodayRow: View {
     static let maxDots = 12
 
@@ -512,23 +512,22 @@ struct TodayRow: View {
     }
 
     var body: some View {
+        // The same order in every phase, so one width always gives one form.
         ViewThatFits(in: .horizontal) {
-            line(showsLabel: true, showsDots: true, isLong: true)
-            line(showsLabel: false, showsDots: true, isLong: true)
-            line(showsLabel: false, showsDots: true, isLong: false)
-            line(showsLabel: false, showsDots: false, isLong: false)
+            line(showsDots: true, isLong: true)
+            line(showsDots: false, isLong: true)
+            line(showsDots: false, isLong: false)
         }
         .font(.callout)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilityText(summary))
     }
 
-    private func line(showsLabel: Bool, showsDots: Bool, isLong: Bool) -> some View {
+    private func line(showsDots: Bool, isLong: Bool) -> some View {
         HStack(spacing: 8) {
-            if showsLabel {
-                Text("Today")
-                    .foregroundStyle(.secondary)
-            }
+            Text("Today")
+                .foregroundStyle(.secondary)
+                .fixedSize()
             if showsDots {
                 dots
             }
@@ -558,7 +557,7 @@ struct TodayRow: View {
         }
     }
 
-    /// "1h 40m · 4 🍅 · 🔥 6-day streak", or "1h 40m · 4 🍅 · 🔥 6" when short.
+    /// "1h 40m · 4 🍅 · 🔥 6-day streak", or "1h 40m · 4 🍅 · 🔥 6d" when short.
     static func text(_ summary: TodaySummary, isLong: Bool = true) -> String {
         let hasFocus = summary.focusedSeconds > 0 || summary.completedPomodoros > 0
         var parts: [String] =
@@ -567,7 +566,7 @@ struct TodayRow: View {
             : [isLong ? "No focus yet" : "0m"]
         let streak = summary.streak.current
         if streak > 0 {
-            parts.append(isLong ? "🔥 \(streak)-day streak" : "🔥 \(streak)")
+            parts.append(isLong ? "🔥 \(streak)-day streak" : "🔥 \(streak)d")
         }
         return parts.joined(separator: " · ")
     }

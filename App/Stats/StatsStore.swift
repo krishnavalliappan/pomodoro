@@ -12,7 +12,9 @@ import os
 final class StatsStore {
     private static let log = Logger(subsystem: "dev.krishna.pomodoro", category: "stats")
 
-    private(set) var week: StatsWeek
+    /// A day in the week on show. The week itself is derived from it with the current first
+    /// weekday, so a settings change realigns it even while the Stats tab isn't mounted.
+    private var anchor: CivilDay
     /// Briefly the previous week's after navigating, until the observation delivers.
     private(set) var report: WeekReport
 
@@ -22,9 +24,10 @@ final class StatsStore {
     init(model: AppModel) {
         self.model = model
         let stats = Stats(calendar: model.database.calendar, firstWeekday: model.settings.firstWeekday)
-        let week = stats.week(containing: model.clock.now)
-        self.week = week
-        report = WeekReport(week: week, today: stats.day(containing: model.clock.now), days: week.days.map { DayFocus(day: $0) })
+        let today = stats.day(containing: model.clock.now)
+        let week = stats.week(containing: today)
+        anchor = today
+        report = WeekReport(week: week, today: today, days: week.days.map { DayFocus(day: $0) })
         // Synchronous once, so the first frame already has its numbers.
         do {
             report = try model.database.stats.weekReport(week, stats: stats, now: model.clock.now)
@@ -37,29 +40,22 @@ final class StatsStore {
         Stats(calendar: model.database.calendar, firstWeekday: model.settings.firstWeekday)
     }
 
+    var week: StatsWeek { stats.week(containing: anchor) }
     var today: CivilDay { stats.day(containing: model.clock.now) }
     var isCurrentWeek: Bool { week.contains(today) }
     var isStale: Bool { report.week != week }
 
     func showPreviousWeek() {
-        week = week.previous
+        anchor = anchor.adding(days: -7)
     }
 
     func showNextWeek() {
         guard !isCurrentWeek else { return }
-        week = week.next
+        anchor = anchor.adding(days: 7)
     }
 
     func showCurrentWeek() {
-        let current = stats.week(containing: model.clock.now)
-        if current != week { week = current }
-    }
-
-    /// After the first weekday changes: the same week, starting on the new day.
-    func realign() {
-        let anchor = isCurrentWeek ? today : week.start.adding(days: 3)
-        let aligned = stats.week(containing: anchor)
-        if aligned != week { week = aligned }
+        if anchor != today { anchor = today }
     }
 
     /// Runs for as long as the view shows; the view restarts it when the week or day changes.

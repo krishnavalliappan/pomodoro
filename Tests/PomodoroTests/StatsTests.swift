@@ -43,7 +43,7 @@ final class StatsTests: XCTestCase {
         let day = CivilDay(year: 2026, month: 10, day: 17)
         let summary = TodaySummary(day: day, focusedSeconds: 100 * 60, completedPomodoros: 4, streak: Streak(current: 6, best: 9))
         XCTAssertEqual(TodayRow.text(summary), "1h 40m · 4 🍅 · 🔥 6-day streak")
-        XCTAssertEqual(TodayRow.text(summary, isLong: false), "1h 40m · 4 🍅 · 🔥 6")
+        XCTAssertEqual(TodayRow.text(summary, isLong: false), "1h 40m · 4 🍅 · 🔥 6d")
         XCTAssertEqual(TodayRow.text(TodaySummary(day: day)), "No focus yet")
         XCTAssertEqual(TodayRow.text(TodaySummary(day: day), isLong: false), "0m")
         XCTAssertEqual(TodayRow.accessibilityText(summary), "Today: 1h 40m of focus, 4 pomodoros, 6-day streak")
@@ -78,8 +78,55 @@ final class StatsTests: XCTestCase {
         model.updateSettings { $0.firstWeekday = 2 }
         let store = StatsStore(model: model)
         model.updateSettings { $0.firstWeekday = 7 }
-        store.realign()
         XCTAssertEqual(store.week.start, CivilDay(year: 2026, month: 10, day: 17))
+        XCTAssertTrue(store.isCurrentWeek)
+    }
+
+    /// The planner keeps the store while Plan is on show, so the weekday can change with no
+    /// Stats view mounted to hear it; the first report Stats shows must use the new alignment.
+    func testStatsStoreRealignsWhileStatsIsHidden() async throws {
+        let h = try ModelHarness()
+        // Sunday the 11th: in this week when weeks start Sunday, in last week when they start Monday.
+        let sunday = ModelHarness.start - 6 * 86_400
+        try h.database.sessions.insert(FocusSession(
+            start: sunday, end: sunday + focus, plannedSeconds: focus, activeSeconds: focus, completed: true))
+        let model = h.makeModel()
+        model.updateSettings { $0.firstWeekday = 1 }
+        let store = StatsStore(model: model)
+        XCTAssertEqual(store.week.start, CivilDay(year: 2026, month: 10, day: 11))
+        XCTAssertEqual(store.report.totalSeconds, focus)
+
+        model.updateSettings { $0.firstWeekday = 2 }
+
+        let thisWeek = StatsWeek(start: CivilDay(year: 2026, month: 10, day: 12))
+        XCTAssertEqual(store.week, thisWeek)
+        XCTAssertTrue(store.isCurrentWeek)
+        XCTAssertTrue(store.isStale, "the old report must not pass for the new week")
+        let observing = Task { await store.observe() }
+        defer { observing.cancel() }
+        try await waitUntil { !store.isStale }
+        XCTAssertEqual(store.report.week, thisWeek)
+        XCTAssertEqual(store.report.days.first?.day, CivilDay(year: 2026, month: 10, day: 12))
+        XCTAssertEqual(store.report.totalSeconds, 0)
+        XCTAssertEqual(store.report.previousWeekSeconds, focus)
+
+        store.showPreviousWeek()
+        XCTAssertEqual(store.week, thisWeek.previous, "navigation keeps the new alignment")
+    }
+
+    func testStatsStoreRealignsAPastWeekWhileStatsIsHidden() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.updateSettings { $0.firstWeekday = 1 }
+        let store = StatsStore(model: model)
+        store.showPreviousWeek()
+        XCTAssertEqual(store.week.start, CivilDay(year: 2026, month: 10, day: 4))
+
+        model.updateSettings { $0.firstWeekday = 2 }
+        XCTAssertEqual(store.week.start, CivilDay(year: 2026, month: 10, day: 5))
+        XCTAssertFalse(store.isCurrentWeek)
+        store.showNextWeek()
+        XCTAssertEqual(store.week.start, CivilDay(year: 2026, month: 10, day: 12))
         XCTAssertTrue(store.isCurrentWeek)
     }
 

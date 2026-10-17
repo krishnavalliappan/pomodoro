@@ -43,7 +43,6 @@ struct StatsView: View {
         .task(id: ObservationKey(week: store.week, firstWeekday: model.settings.firstWeekday, today: model.today.day)) {
             await store.observe()
         }
-        .onChange(of: model.settings.firstWeekday) { store.realign() }
     }
 
     // MARK: - Header
@@ -167,6 +166,13 @@ struct WeekChart: View {
     var today: CivilDay
     var calendar: Calendar
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// Other days' bars: a faded tint, less faded on dark, where 40% sinks into the background.
+    private var pastTint: Color {
+        PhaseStyle.focusTint.opacity(colorScheme == .dark ? 0.62 : 0.4)
+    }
+
     private var maxMinutes: Double {
         days.map { $0.focusedSeconds / 60 }.max() ?? 0
     }
@@ -190,7 +196,7 @@ struct WeekChart: View {
                 y: .value("Minutes", day.focusedSeconds / 60),
                 width: .ratio(0.62)
             )
-            .foregroundStyle(day.day == today ? PhaseStyle.focusTint : PhaseStyle.focusTint.opacity(0.4))
+            .foregroundStyle(day.day == today ? PhaseStyle.focusTint : pastTint)
             .cornerRadius(4)
             .annotation(position: .top, spacing: 4) {
                 if day.focusedSeconds >= 60 {
@@ -210,6 +216,7 @@ struct WeekChart: View {
                 AxisValueLabel {
                     if let minutes = value.as(Double.self) {
                         Text(Stats.durationText(minutes * 60))
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -250,7 +257,8 @@ struct TopTasksCard: View {
                 Text("Top tasks")
                     .font(.headline)
                 Spacer()
-                Text("Done / estimate")
+                // The bars are this week's; the dots are the task's whole life against its estimate.
+                Text("All-time done / estimate")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -294,10 +302,19 @@ struct TopTasksCard: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                     .frame(width: 52, alignment: .trailing)
+                    .help(isCurrentWeek ? "Focus this week" : "Focus in the selected week")
             }
         }
         .font(.callout)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText(task))
+    }
+
+    private func accessibilityText(_ task: TaskStat) -> String {
+        let week = "\(Stats.durationText(task.week.focusedSeconds)) \(isCurrentWeek ? "this week" : "in the selected week")"
+        let done = task.allTime.completedPomodoros
+        let lifetime = task.estimatePomodoros.map { "\(done) of \($0) pomodoros done all-time" } ?? "\(done) pomodoros done all-time"
+        return "\(task.title)\(task.isDone ? ", done" : ""), \(week), \(lifetime)"
     }
 
     private func fraction(_ task: TaskStat) -> CGFloat {
