@@ -25,6 +25,7 @@ protocol AmbientAudioEngine: AnyObject {
 
 enum AmbientEngineError: Error {
     case missingFile(String)
+    case noOutputDevice
 }
 
 @MainActor
@@ -50,6 +51,14 @@ final class AVAmbientEngine: AmbientAudioEngine {
     func start() throws {
         let engine = self.engine ?? makeEngine()
         guard !engine.isRunning else { return }
+        // AVAudioEngine raises an uncatchable exception, rather than throwing, when it has no
+        // usable output or nothing wired to it, and voices only arrive after it has started.
+        let output = engine.outputNode.outputFormat(forBus: 0)
+        guard output.channelCount > 0, output.sampleRate > 0 else {
+            stop()
+            throw AmbientEngineError.noOutputDevice
+        }
+        _ = engine.mainMixerNode
         engine.prepare()
         do {
             try engine.start()
