@@ -138,9 +138,37 @@ final class PopoverViewSnapshotTests: XCTestCase {
 
     // MARK: Sounds and Stats tabs
 
-    func testSoundsPlaceholder() throws {
+    func testSoundsNoneSelected() throws {
         let h = try harness()
-        assertPopover(h.makeModel(), .sounds, "placeholder")
+        assertPopover(h.makeModel(), .sounds, "none")
+    }
+
+    func testSoundsTwoSelected() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.toggleAmbient("rain")
+        model.toggleAmbient("fireplace")
+        assertPopover(model, .sounds, "two")
+    }
+
+    /// Tapped with the timer idle: selected, and previewing.
+    func testSoundsPreview() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.tapAmbient("waves")
+        assertPopover(model, .sounds, "preview")
+    }
+
+    /// The ♪ beside the phase while the mix plays.
+    func testFocusWithAmbient() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.toggleAmbient("rain")
+        model.startFocus()
+        // The harness has no update seam; this is the call it would make.
+        model.ambient.update(phase: .focus, status: .running)
+        h.clock.advance(by: 6 * 60 + 18)
+        assertPopover(model, .timer, "ambient")
     }
 
     /// Uneven days with a gap on Sunday the 11th, and a six-day streak.

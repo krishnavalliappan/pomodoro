@@ -41,7 +41,7 @@ struct PopoverView: View {
                         isEditing: $navigation.isEditingTask
                     )
                 case .sounds:
-                    PopoverSoundsTab()
+                    PopoverSoundsTab(model: model)
                 case .stats:
                     PopoverStatsTab(model: model, openStats: actions.openStats)
                 }

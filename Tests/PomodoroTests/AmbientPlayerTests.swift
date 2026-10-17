@@ -455,4 +455,69 @@ final class AppModelAmbientTests: XCTestCase {
         h.ambientEngine.finishRamps()
         XCTAssertFalse(h.ambientEngine.isRunning)
     }
+
+    // MARK: Sounds tab
+
+    func testTappingWhileIdleSavesAndPreviews() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.tapAmbient("rain")
+        XCTAssertEqual(h.settingsStore.load().ambient.sounds, ["rain"], "saved")
+        XCTAssertEqual(model.previewingAmbient, "rain", "heard at once")
+        XCTAssertTrue(model.isAmbientPlaying)
+
+        model.tapAmbient("forest")
+        XCTAssertEqual(model.previewingAmbient, "forest", "the newest tap is the one previewed")
+
+        model.tapAmbient("forest")
+        XCTAssertEqual(model.ambientMix.sounds, ["rain"])
+        XCTAssertNil(model.previewingAmbient, "switching off stops its own preview")
+        XCTAssertFalse(model.isAmbientPlaying, "idle: the mix waits for focus")
+    }
+
+    func testTappingDuringFocusPlaysWithoutAPreview() throws {
+        let h = try ModelHarness()
+        let model = services(h).model
+        model.startFocus()
+        model.tapAmbient("rain")
+        XCTAssertNil(model.previewingAmbient)
+        XCTAssertEqual(h.ambientEngine.voices, ["rain"])
+        XCTAssertTrue(model.isAmbientPlaying)
+    }
+
+    func testStopAllKeepsLevels() throws {
+        let h = try ModelHarness()
+        let model = services(h).model
+        model.setAmbientLevel(0.5, for: "rain")
+        model.toggleAmbient("rain")
+        model.toggleAmbient("waves")
+        model.startFocus()
+        XCTAssertTrue(model.isAmbientPlaying)
+
+        model.stopAllAmbient()
+        h.ambientEngine.finishRamps()
+        XCTAssertTrue(h.settingsStore.load().ambient.isEmpty, "saved")
+        XCTAssertEqual(model.ambientMix.level(for: "rain"), 0.5)
+        XCTAssertFalse(model.isAmbientPlaying)
+        XCTAssertFalse(h.ambientEngine.isRunning)
+    }
+
+    func testCaption() {
+        let sounds = AmbientLibrary.bundled(in: Bundle(for: AppModel.self)).sounds
+        XCTAssertEqual(PopoverSoundsTab.caption(mix: AmbientMix(), sounds: sounds, isPlaying: false), "Tap sounds to mix them. They play during focus.")
+        let mix = AmbientMix(sounds: ["rain", "forest"])
+        XCTAssertEqual(PopoverSoundsTab.caption(mix: mix, sounds: sounds, isPlaying: false), "Rain + Forest · plays during focus")
+        XCTAssertEqual(PopoverSoundsTab.caption(mix: mix, sounds: sounds, isPlaying: true), "Rain + Forest · playing")
+    }
+
+    /// The model with the update seam wired, as at launch, so the timer drives the player.
+    private func services(_ h: ModelHarness) -> AppServices {
+        AppServices(
+            notifications: NotificationService(center: FakeNotificationCenter(clock: h.clock), clock: h.clock, pause: { await Task.yield() }),
+            appNap: AppNapGuard(scheduler: FakeActivityScheduler()),
+            ambient: h.makeAmbientPlayer(),
+            makeModel: { h.makeModel(ambient: $0, onEngineUpdate: $1) },
+            makeSystemEvents: { SystemEvents(workspaceCenter: NotificationCenter(), distributedCenter: NotificationCenter(), localCenter: NotificationCenter(), reconcile: $0) }
+        )
+    }
 }
