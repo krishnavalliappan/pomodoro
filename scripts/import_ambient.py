@@ -225,9 +225,11 @@ def crossfade_seam(samples, seam):
 
 
 def encode(ffmpeg, samples, path):
+    # The edit list that trims AAC priming counts in the movie timescale; ffmpeg's default of
+    # 1000 rounds the loop down to whole milliseconds, which Core Audio plays as a short gap.
     run([ffmpeg, "-hide_banner", "-nostdin", "-y", *RAW_IN, "-i", "-", "-c:a", "aac", "-b:a", BITRATE,
          "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:a", "+bitexact", "-movflags", "+faststart",
-         path], stdin=samples.tobytes())
+         "-movie_timescale", str(RATE), path], stdin=samples.tobytes())
 
 
 def decoded_frames(ffmpeg, path):
