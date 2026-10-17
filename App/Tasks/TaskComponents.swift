@@ -110,9 +110,7 @@ extension View {
             if isEmpty {
                 Text(placeholder)
                     .lineLimit(1)
-                    .foregroundStyle(Color(nsColor: .placeholderTextColor))
-                    // The inset AppKit draws a plain field's text at, so typing starts under it.
-                    .padding(.leading, alignment == .leading ? 2 : 0)
+                    .foregroundStyle(placeholderColor)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
@@ -120,6 +118,14 @@ extension View {
         .accessibilityLabel(Text(placeholder))
     }
 }
+
+/// What AppKit drew a plain field's placeholder in, measured from the old snapshots; it's
+/// darker than `placeholderTextColor`.
+private let placeholderColor = Color(nsColor: NSColor(name: nil) { appearance in
+    appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        ? NSColor(white: 1, alpha: 0.8)
+        : NSColor(white: 0, alpha: 0.75)
+})
 
 /// Quick-add with a live readout of what the parser found, so the `~3 @14:00 45m #tag tomorrow`
 /// syntax is discoverable by typing.
