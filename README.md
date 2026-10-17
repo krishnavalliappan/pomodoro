@@ -40,9 +40,10 @@ every push to `main`: XcodeGen → `swift test` for `PomodoroCore` → `xcodebui
 a check that `LSUIElement` is set in the built `Info.plist`. Artifacts:
 
 - `snapshots`: `reference/` holds the reference PNGs (plus any recorded on this run), and
-  `failures/` holds failed renders and diffs.
+  `failures/` holds failed renders. On a mismatch, `failures/<TestClass>/<test>/` also holds
+  `reference.png`, `failure.png` (actual), and `difference.png`, exported from the xcresult.
 - `xcresult`: the full test result bundle.
-- `Pomodoro.app`: zipped Release build (pushes to `main` only).
+- `Pomodoro.app`: zipped Release build (pushes to `main` only; PRs build Release but don't upload).
 
 ## Snapshot tests
 
@@ -62,3 +63,7 @@ To re-record an intentional UI change, delete the old PNG and follow the same st
 tests locally on a Mac and commit the result. References are rendered by the CI runner (macOS 26,
 Xcode 26.6). A local Mac with a different OS version may render slightly differently, so treat
 CI-rendered PNGs as the source of truth.
+
+When `macos-latest` moves to a new macOS image, or `XCODE_VERSION` changes, update both in one
+PR and re-record every reference in that same PR. AppKit rendering follows the OS, so references
+are only valid for the runner image and Xcode that rendered them.

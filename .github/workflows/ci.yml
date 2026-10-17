@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -20,6 +23,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -37,14 +42,19 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      # .build holds compiled outputs, so the key must change with the runner image and arch.
+      - name: Runner image
+        id: image
+        run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
       - name: Cache SwiftPM
         uses: actions/cache@v4
         with:
           path: |
             build/SourcePackages
             Packages/PomodoroCore/.build
-          key: spm-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('project.yml', 'Packages/**/Package.swift', 'Packages/**/Package.resolved') }}
-          restore-keys: spm-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.image.outputs.id }}-${{ env.XCODE_VERSION }}-${{ hashFiles('project.yml', 'Packages/**/Package.swift', 'Packages/**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.image.outputs.id }}-${{ env.XCODE_VERSION }}-
 
       - name: Test PomodoroCore
         run: swift test --package-path Packages/PomodoroCore
@@ -73,12 +83,37 @@ jobs:
           echo "LSUIElement=$value"
           test "$value" = "true" || test "$value" = "1"
 
+      # SnapshotTesting only writes the actual render to SNAPSHOT_ARTIFACTS; the reference,
+      # failure, and difference images are XCTest attachments inside the result bundle.
       - name: Collect snapshots
         if: always()
         run: |
           mkdir -p build/snapshots/reference build/snapshots/failures
           cp -R Snapshots/. build/snapshots/reference/ 2>/dev/null || true
           cp -R "$SNAPSHOT_ARTIFACTS"/. build/snapshots/failures/ 2>/dev/null || true
+          if [ -d build/Pomodoro.xcresult ]; then
+            raw=build/xcresult-attachments
+            xcrun xcresulttool export attachments \
+              --path build/Pomodoro.xcresult \
+              --output-path "$raw" || echo "::warning::xcresulttool attachment export failed"
+            if [ -f "$raw/manifest.json" ]; then
+              # Lay files out as failures/<Class>/<test>/<attachment>.png so variants never collide.
+              python3 - "$raw" build/snapshots/failures <<'PY'
+          import json, os, re, shutil, sys
+          raw, out = sys.argv[1], sys.argv[2]
+          for test in json.load(open(os.path.join(raw, "manifest.json"))):
+              ident = test.get("testIdentifier", "unknown").replace("()", "")
+              dest = os.path.join(out, *[re.sub(r"[^A-Za-z0-9._-]", "_", p) for p in ident.split("/")])
+              os.makedirs(dest, exist_ok=True)
+              for a in test.get("attachments", []):
+                  src = os.path.join(raw, a["exportedFileName"])
+                  name = a.get("suggestedHumanReadableName") or a["exportedFileName"]
+                  # Names look like "difference_0_<UUID>.png"; keep the readable prefix.
+                  name = re.sub(r"_\d+_[0-9A-Fa-f-]{36}(?=\.)", "", name)
+                  shutil.copy(src, os.path.join(dest, name))
+          PY
+            fi
+          fi
           find build/snapshots -type f | sort
 
       - name: Upload snapshots
@@ -97,8 +132,8 @@ jobs:
           path: build/Pomodoro.xcresult
           if-no-files-found: warn
 
+      # Built on PRs too so Release-only failures surface before merge; only main uploads it.
       - name: Build Release app
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           set -o pipefail
           xcodebuild \
