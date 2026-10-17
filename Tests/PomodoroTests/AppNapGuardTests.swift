@@ -3,7 +3,7 @@ import PomodoroCore
 import XCTest
 @testable import Pomodoro
 
-private final class FakeScheduler: ActivityScheduling {
+private final class FakeActivityScheduler: ActivityScheduling {
     private(set) var begun: [(ProcessInfo.ActivityOptions, String)] = []
     private(set) var ended = 0
     var active: Int { begun.count - ended }
@@ -26,7 +26,7 @@ final class AppNapGuardTests: XCTestCase {
     }
 
     func testHoldsOnlyWhileABoundaryIsComing() {
-        let scheduler = FakeScheduler()
+        let scheduler = FakeActivityScheduler()
         let guardian = AppNapGuard(scheduler: scheduler)
         let clock = TestClock(now: Date(timeIntervalSinceReferenceDate: 800_000_000))
         let engine = TimerEngine(clock: clock)
@@ -57,7 +57,7 @@ final class AppNapGuardTests: XCTestCase {
     }
 
     func testRepeatedUpdatesHoldOneActivity() {
-        let scheduler = FakeScheduler()
+        let scheduler = FakeActivityScheduler()
         let guardian = AppNapGuard(scheduler: scheduler)
         guardian.setHolding(true)
         guardian.setHolding(true)
@@ -68,7 +68,7 @@ final class AppNapGuardTests: XCTestCase {
     }
 
     func testReleasingTheGuardEndsTheActivity() {
-        let scheduler = FakeScheduler()
+        let scheduler = FakeActivityScheduler()
         var guardian: AppNapGuard? = AppNapGuard(scheduler: scheduler)
         guardian?.setHolding(true)
         guardian = nil
