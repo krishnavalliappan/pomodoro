@@ -1153,3 +1153,153 @@ struct TimerEngineReviewFollowUpTests {
         #expect(record.outcome == .completed)
     }
 }
+
+struct TimerEngineFocusConfigurationTests {
+    private let oneOff = TimerConfiguration(focusDuration: 50 * 60, shortBreakDuration: 10 * 60, longBreakDuration: 10 * 60)
+
+    /// Hands out `oneOff` once, then the defaults, like the app's planner.
+    private func attachOneOff(_ engine: TimerEngine) -> () -> Int {
+        var queued: TimerConfiguration? = oneOff
+        var asked = 0
+        engine.configurationForFocus = {
+            asked += 1
+            defer { queued = nil }
+            return queued ?? TimerConfiguration()
+        }
+        return { asked }
+    }
+
+    @Test func providerIsAskedForEveryFocusAndNotForBreaks() {
+        let (engine, clock) = makeEngine()
+        let asked = attachOneOff(engine)
+        engine.start()
+        #expect(asked() == 1)
+        #expect(engine.state.plannedDuration == 50 * 60)
+        engine.skip()
+        #expect(asked() == 1, "a break keeps the focus's configuration")
+        #expect(engine.state.plannedDuration == 10 * 60)
+        clock.advance(by: 60)
+        engine.skip()
+        #expect(asked() == 2)
+        #expect(engine.state.plannedDuration == focus)
+    }
+
+    @Test func chainedAutoStartsSwitchBackWithinOneCatchUp() {
+        let (engine, clock) = makeEngine(TimerConfiguration(autoStartBreaks: true, autoStartFocus: true))
+        var queued: TimerConfiguration? = TimerConfiguration(
+            focusDuration: 50 * 60, shortBreakDuration: 10 * 60, longBreakDuration: 10 * 60,
+            autoStartBreaks: true, autoStartFocus: true
+        )
+        engine.configurationForFocus = {
+            defer { queued = nil }
+            return queued ?? TimerConfiguration(autoStartBreaks: true, autoStartFocus: true)
+        }
+        engine.start()
+        // Minute 60: the one-off focus and its break both ended, and the next focus auto-started.
+        clock.advance(by: 60 * 60)
+        let events = engine.reconcile()
+        #expect(kinds(events) == [
+            "focusEnded", "recorded:completed", "started:shortBreak", "breakEnded", "started:focus",
+        ])
+        #expect(engine.phase == .focus)
+        #expect(engine.state.plannedDuration == focus, "the chained focus is back on the default")
+        #expect(engine.configuration.shortBreakDuration == 5 * 60, "and so is its break")
+    }
+
+    @Test func explicitDurationStillWinsAndNilKeepsTheConfiguration() {
+        let (engine, _) = makeEngine()
+        engine.configurationForFocus = { nil }
+        engine.start(duration: 600)
+        #expect(engine.state.plannedDuration == 600)
+        #expect(engine.configuration == TimerConfiguration())
+    }
+}
+
+/// A provider that calls back into the engine is ignored, not replayed (release-build behaviour;
+/// DEBUG traps, so these tests turn the trap off).
+struct TimerEngineReentryTests {
+    private func breakAtItsEnd() -> (TimerEngine, TestClock) {
+        let (engine, clock) = makeEngine(TimerConfiguration(autoStartFocus: true))
+        engine.trapsOnReentry = false
+        engine.start(phase: .shortBreak)
+        clock.advance(by: 5 * 60)
+        return (engine, clock)
+    }
+
+    @Test func nestedReconcileFromTheProviderDoesNotReplayTheBreakEnd() {
+        let (engine, _) = breakAtItsEnd()
+        var asked = 0
+        var nested: [[TimerEvent]] = []
+        engine.configurationForFocus = {
+            asked += 1
+            nested.append(engine.reconcile())
+            return nil
+        }
+        var delivered: [TimerEvent] = []
+        engine.onEvent = { delivered.append($0) }
+        let events = engine.reconcile()
+        #expect(asked == 1)
+        #expect(nested.allSatisfy { $0.isEmpty })
+        #expect(kinds(events) == ["breakEnded", "started:focus"])
+        #expect(kinds(delivered) == kinds(events))
+        #expect(engine.phase == .focus)
+        #expect(engine.status == .running)
+        #expect(engine.state.plannedDuration == focus)
+    }
+
+    @Test func nestedActionsFromTheProviderAreIgnored() {
+        let (engine, clock) = breakAtItsEnd()
+        var asked = 0
+        var nested: [[TimerEvent]] = []
+        engine.configurationForFocus = {
+            asked += 1
+            nested = [engine.reset(), engine.start(phase: .longBreak), engine.skip(), engine.stopAndLog()]
+            engine.configuration = TimerConfiguration(focusDuration: 1)
+            _ = engine.snapshot()
+            return TimerConfiguration(focusDuration: 40 * 60, autoStartFocus: true)
+        }
+        let events = engine.reconcile()
+        #expect(asked == 1)
+        #expect(nested.count == 4)
+        #expect(nested.allSatisfy { $0.isEmpty })
+        #expect(kinds(events) == ["breakEnded", "started:focus"])
+        #expect(engine.phase == .focus)
+        #expect(engine.state.plannedDuration == 40 * 60, "the provider's result wins over its ignored setter call")
+        #expect(engine.state.phaseStartedAt == t0 + 5 * 60)
+
+        // The guard lifts once the transition commits.
+        engine.configurationForFocus = nil
+        clock.advance(by: 60)
+        #expect(kinds(engine.skip()) == ["recorded:abandoned", "started:shortBreak"])
+    }
+
+    @Test func providerThatStartsAFocusDoesNotRecurse() {
+        let (engine, _) = makeEngine()
+        engine.trapsOnReentry = false
+        var asked = 0
+        engine.configurationForFocus = {
+            asked += 1
+            engine.start()
+            return nil
+        }
+        let events = engine.start()
+        #expect(asked == 1)
+        #expect(kinds(events) == ["started:focus"])
+    }
+
+    @Test func onEventMayCallBackInAfterTheTransitionCommits() {
+        let (engine, _) = breakAtItsEnd()
+        engine.trapsOnReentry = true
+        var nested: [TimerEvent] = []
+        var count = 0
+        engine.onEvent = { event in
+            count += 1
+            if case .breakEnded = event { nested += engine.reconcile() }
+        }
+        let events = engine.reconcile()
+        #expect(kinds(events) == ["breakEnded", "started:focus"])
+        #expect(nested.isEmpty, "the end was already committed, so nothing replays")
+        #expect(count == 2)
+        #expect(engine.phase == .focus)
+    }
+}

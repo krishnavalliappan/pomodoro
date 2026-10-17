@@ -12,6 +12,12 @@ import Foundation
 ///
 /// Not thread-safe by design. A single owner (the app's main-actor model) makes every call, and
 /// `onEvent` runs synchronously inside the call that produced the events.
+///
+/// Re-entry: `configurationForFocus` runs mid-transition, while the old phase has ended but the new
+/// one isn't committed. Any action, reconcile or configuration change made from it would replay
+/// that half-finished transition, so it traps in DEBUG and is ignored (returning `[]`) in release.
+/// Reads such as `state` and `snapshot()` are fine. `onEvent` runs after the transition commits, so
+/// it may call back in; the nested call delivers and returns its own events.
 public final class TimerEngine {
     /// An auto-started focus is skipped if the break ended longer ago than this, so a Mac
     /// waking from sleep doesn't start a focus nobody is there for. It measures lateness, so a
@@ -30,13 +36,29 @@ public final class TimerEngine {
     /// Changing `nudgeInterval` during overtime keeps the last nudge as the anchor: the next one
     /// comes a new interval after it, or a new interval from now if that moment has passed.
     public var configuration: TimerConfiguration {
-        didSet {
-            if oldValue.nudgeInterval != configuration.nudgeInterval { reanchorNudges(at: clock.now) }
+        get { storedConfiguration }
+        set {
+            guard admitsMutation() else { return }
+            let old = storedConfiguration
+            storedConfiguration = newValue
+            if old.nudgeInterval != newValue.nudgeInterval { reanchorNudges(at: clock.now) }
         }
     }
     public private(set) var state: TimerState
     /// Receives every event, in order. Actions also return them.
     public var onEvent: ((TimerEvent) -> Void)?
+    /// Asked as each focus begins, by any route (start, skip, or an auto-start chained inside one
+    /// catch-up), before its duration is chosen. A non-nil result replaces `configuration` and so
+    /// also covers the break that follows. This is how a one-off profile lasts exactly one focus:
+    /// a configuration set after an action returns would be too late for a chained auto-start.
+    /// It must only compute a value: see the re-entry note on the type.
+    public var configurationForFocus: (() -> TimerConfiguration?)?
+
+    /// Off only in tests that exercise the release-build behaviour of re-entry.
+    var trapsOnReentry = true
+
+    private var storedConfiguration: TimerConfiguration
+    private var isTransitioning = false
 
     private let clock: any TimeSource
 
@@ -45,7 +67,7 @@ public final class TimerEngine {
         clock: any TimeSource = SystemClock(),
         state: TimerState = TimerState()
     ) {
-        self.configuration = configuration
+        self.storedConfiguration = configuration
         self.clock = clock
         self.state = state
     }
@@ -159,6 +181,7 @@ public final class TimerEngine {
     /// reconcile first, so an overdue boundary is discarded too: no record, end, or auto-start.
     @discardableResult
     public func reset() -> [TimerEvent] {
+        guard admitsMutation() else { return [] }
         state = TimerState()
         return []
     }
@@ -229,8 +252,9 @@ public final class TimerEngine {
     /// `nextBoundary` and after the system wakes.
     @discardableResult
     public func reconcile(now: Date) -> [TimerEvent] {
+        guard admitsMutation() else { return [] }
         var events: [TimerEvent] = []
-        advance(to: now, events: &events)
+        transition { advance(to: now, events: &events) }
         deliver(events)
         return events
     }
@@ -248,13 +272,29 @@ public final class TimerEngine {
     }
 
     private func perform(_ body: (Date, inout [TimerEvent]) -> Void) -> [TimerEvent] {
+        guard admitsMutation() else { return [] }
         let now = clock.now
         var events: [TimerEvent] = []
-        advance(to: now, events: &events)
-        body(now, &events)
-        advance(to: now, events: &events)
+        transition {
+            advance(to: now, events: &events)
+            body(now, &events)
+            advance(to: now, events: &events)
+        }
         deliver(events)
         return events
+    }
+
+    /// Delivery stays outside so `onEvent` sees a committed state and may call back in.
+    private func transition(_ body: () -> Void) {
+        isTransitioning = true
+        defer { isTransitioning = false }
+        body()
+    }
+
+    private func admitsMutation() -> Bool {
+        guard isTransitioning else { return true }
+        if trapsOnReentry { assertionFailure("TimerEngine re-entered during a transition; ignoring the call") }
+        return false
     }
 
     private func deliver(_ events: [TimerEvent]) {
@@ -342,6 +382,8 @@ public final class TimerEngine {
     }
 
     private func begin(_ phase: TimerPhase, at date: Date, duration: TimeInterval?, events: inout [TimerEvent]) {
+        // Set without re-anchoring nudges: the phase starting below resets them anyway.
+        if phase == .focus, let next = configurationForFocus?() { storedConfiguration = next }
         if phase == .longBreak { state.completedFocusesInCycle = 0 }
         state.phase = phase
         state.status = .running

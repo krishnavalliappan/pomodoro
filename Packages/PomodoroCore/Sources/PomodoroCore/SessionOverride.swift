@@ -38,32 +38,67 @@ public struct SessionOverride: Hashable, Sendable {
     }
 }
 
-/// Holds a pending one-off override until the next session starts. It is kept apart from
-/// `AppSettings` on purpose, so an override can never leak into persisted defaults.
-public struct SessionPlanner: Hashable, Sendable {
-    public private(set) var pendingOverride: SessionOverride?
+/// A one-off choice for the next focus and the break after it: a preset picked from the chips,
+/// or typed durations layered on the default profile.
+public enum SessionOneOff: Hashable, Sendable {
+    case preset(Preset.ID)
+    case custom(SessionOverride)
 
-    public init(pendingOverride: SessionOverride? = nil) {
-        setOverride(pendingOverride)
+    /// `nil` when the preset has since been deleted, so the default applies.
+    public func profile(in settings: AppSettings) -> TimerProfile? {
+        switch self {
+        case .preset(let id): settings.preset(id: id)?.profile
+        case .custom(let override): override.applied(to: settings.defaultProfile)
+        }
+    }
+}
+
+/// Holds a pending one-off until the next focus begins. It is kept apart from `AppSettings` on
+/// purpose, so a one-off can never leak into persisted defaults.
+public struct SessionPlanner: Hashable, Sendable {
+    public private(set) var pending: SessionOneOff?
+
+    public init(pending: SessionOneOff? = nil) {
+        set(pending)
+    }
+
+    public init(pendingOverride: SessionOverride?) {
+        self.init(pending: pendingOverride.map(SessionOneOff.custom))
+    }
+
+    public var pendingOverride: SessionOverride? {
+        if case .custom(let override) = pending { override } else { nil }
+    }
+
+    public var pendingPresetID: Preset.ID? {
+        if case .preset(let id) = pending { id } else { nil }
+    }
+
+    public mutating func set(_ oneOff: SessionOneOff?) {
+        if case .custom(let override) = oneOff, override.isEmpty {
+            pending = nil
+        } else {
+            pending = oneOff
+        }
     }
 
     public mutating func setOverride(_ override: SessionOverride?) {
-        pendingOverride = override?.isEmpty == true ? nil : override
+        set(override.map(SessionOneOff.custom))
     }
 
-    public mutating func clearOverride() {
-        pendingOverride = nil
+    public mutating func clear() {
+        pending = nil
     }
 
-    /// What the next session would use, without consuming the override.
-    public func previewProfile(base: TimerProfile) -> TimerProfile {
-        pendingOverride?.applied(to: base) ?? base
+    /// What the next focus would use, without consuming the one-off.
+    public func previewProfile(in settings: AppSettings) -> TimerProfile {
+        pending?.profile(in: settings) ?? settings.defaultProfile
     }
 
-    /// The profile for the focus starting now and the break right after it. The override is used
-    /// up, but the caller must still restore the base profile before the next focus.
-    public mutating func consumeProfile(base: TimerProfile) -> TimerProfile {
-        defer { pendingOverride = nil }
-        return previewProfile(base: base)
+    /// The one-off profile for the focus beginning now (and its break), or `nil` for the default.
+    /// Either way nothing is pending afterwards, so the focus after this one is back on defaults.
+    public mutating func consumeProfile(in settings: AppSettings) -> TimerProfile? {
+        defer { pending = nil }
+        return pending?.profile(in: settings)
     }
 }

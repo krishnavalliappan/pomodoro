@@ -1,43 +1,104 @@
-import AppKit
-import SnapshotTesting
+import PomodoroCore
 import SwiftUI
 import XCTest
 @testable import Pomodoro
 
 @MainActor
 final class PopoverViewSnapshotTests: XCTestCase {
-    func testPopoverLight() {
-        assertPopover(appearance: .aqua, scheme: .light, name: "light")
+    private let focus: TimeInterval = 25 * 60
+
+    func testIdle() throws {
+        let h = try harness()
+        assertPopover(h.makeModel(), "idle")
     }
 
-    func testPopoverDark() {
-        assertPopover(appearance: .darkAqua, scheme: .dark, name: "dark")
+    func testFocusRunning() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.startFocus()
+        h.clock.advance(by: 6 * 60 + 18)
+        assertPopover(model, "focus")
     }
 
-    private func assertPopover(
-        appearance: NSAppearance.Name,
-        scheme: ColorScheme,
-        name: String,
-        file: StaticString = #filePath,
-        testName: String = #function,
-        line: UInt = #line
-    ) {
-        let view = NSHostingView(rootView: PopoverView().environment(\.colorScheme, scheme))
-        view.appearance = NSAppearance(named: appearance)
-        view.frame = CGRect(origin: .zero, size: PopoverView.size)
-        view.layoutSubtreeIfNeeded()
+    func testPaused() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.startFocus()
+        h.clock.advance(by: 6 * 60 + 18)
+        model.pause()
+        h.clock.advance(by: 60)
+        assertPopover(model, "paused")
+    }
 
-        let failure = verifySnapshot(
-            of: view,
-            as: .image(precision: 0.99, perceptualPrecision: 0.98),
-            named: name,
-            snapshotDirectory: Snapshot.directory(for: file),
+    func testOvertimeAwaitingDecision() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.startFocus()
+        h.scheduler.advance(by: focus + 135)
+        XCTAssertEqual(model.prompt, .focusEnded)
+        assertPopover(model, "overtime")
+    }
+
+    func testBreakRunning() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.startFocus()
+        h.scheduler.advance(by: focus)
+        model.startBreak()
+        h.clock.advance(by: 110)
+        assertPopover(model, "break")
+    }
+
+    func testBreakOver() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.startFocus()
+        h.scheduler.advance(by: focus)
+        model.startBreak()
+        h.scheduler.advance(by: 5 * 60 + 40)
+        XCTAssertEqual(model.prompt, .breakEnded)
+        assertPopover(model, "breakOver")
+    }
+
+    func testPendingOverride() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        XCTAssertTrue(model.applyOverride("50/10"))
+        assertPopover(model, "override")
+    }
+
+    func testPresetOneOff() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.toggleOneOffPreset(Preset.deep.id)
+        assertPopover(model, "presetOnce")
+    }
+
+    func testPlaceholderWindows() {
+        Snapshot.assertLightAndDark(
+            PlannerPlaceholderView(), size: PlannerPlaceholderView.size, name: "PlannerPlaceholderView", variant: "placeholder")
+        Snapshot.assertLightAndDark(
+            SettingsPlaceholderView(), size: SettingsPlaceholderView.size, name: "SettingsPlaceholderView", variant: "placeholder")
+    }
+
+    // MARK: - Helpers
+
+    private func harness() throws -> ModelHarness {
+        let h = try ModelHarness(display: .time)
+        try h.seedCompletedSessions(2)
+        return h
+    }
+
+    private func assertPopover(_ model: AppModel, _ variant: String, file: StaticString = #filePath, line: UInt = #line) {
+        // Opening the popover refreshes the readout, as it does in the app.
+        model.setPopoverVisible(true)
+        Snapshot.assertLightAndDark(
+            PopoverView(model: model, actions: PopoverActions(quit: {})),
+            size: PopoverView.size,
+            name: "PopoverView",
+            variant: variant,
             file: file,
-            testName: "PopoverView",
             line: line
         )
-        if let failure {
-            XCTFail(failure, file: file, line: line)
-        }
     }
 }
