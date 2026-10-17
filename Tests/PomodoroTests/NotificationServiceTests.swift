@@ -9,7 +9,7 @@ import XCTest
 /// pending-queue check does it too unless `deliveryLag` holds it back. `fireDue()` models a fired
 /// trigger whose delivery is still on its way: removing it does nothing, and `land()` delivers it.
 @MainActor
-private final class FakeNotificationCenter: NotificationCenterClient {
+final class FakeNotificationCenter: NotificationCenterClient {
     struct Pending {
         var request: UNNotificationRequest
         var fireDate: Date

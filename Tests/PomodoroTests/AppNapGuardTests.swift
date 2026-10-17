@@ -3,7 +3,7 @@ import PomodoroCore
 import XCTest
 @testable import Pomodoro
 
-private final class FakeActivityScheduler: ActivityScheduling {
+final class FakeActivityScheduler: ActivityScheduling {
     private(set) var begun: [(ProcessInfo.ActivityOptions, String)] = []
     private(set) var ended = 0
     var active: Int { begun.count - ended }
