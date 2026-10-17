@@ -22,9 +22,11 @@ final class TaskStore {
     @ObservationIgnored private let observation = Subscription()
     /// Bumped per subscription, so a value already in flight from a cancelled one is dropped.
     @ObservationIgnored private(set) var generation = 0
-    @ObservationIgnored private var index: [UUID: TaskItem] = [:]
+    // Observed, not ignored: the menu bar title reads a task through `task(id:)`, and must
+    // follow a rename even while paused, when nothing else re-renders it.
+    private var index: [UUID: TaskItem] = [:]
     /// Tasks looked up outside the lists, such as a restored session's finished task.
-    @ObservationIgnored private var strays: [UUID: TaskItem] = [:]
+    private var strays: [UUID: TaskItem] = [:]
 
     init(database: AppDatabase, clock: any TimeSource) {
         self.database = database
@@ -100,29 +102,47 @@ final class TaskStore {
     }
 
     func setDone(_ id: UUID, _ isDone: Bool) {
-        attempt("checking off a task") { try database.tasks.setDone(id: id, isDone, at: clock.now) }
+        refreshStray(attempt("checking off a task") { try database.tasks.setDone(id: id, isDone, at: clock.now) })
     }
 
-    func update(_ task: TaskItem) {
-        guard task != self.task(id: task.id) else { return }
-        attempt("saving a task") { try database.tasks.update(task) }
+    /// Saves an editor's changed fields into the row as it is now, never a whole stale row, so
+    /// a check-off or reschedule committed meanwhile survives. Shown at once, like a reorder.
+    func edit(_ id: UUID, _ edit: TaskEdit) {
+        if let current = task(id: id), edit.applied(to: current) == current { return }
+        guard let saved = attempt("saving a task", { try database.tasks.edit(id: id, edit) }) else { return }
+        refreshStray(saved)
+        // Title, notes and estimate don't move a row between lists, so they can be patched in place.
+        var optimistic = overview
+        let lists: [WritableKeyPath<TaskOverview, [TaskItem]>] = [\.today, \.inbox, \.upcoming]
+        for list in lists {
+            if let position = optimistic[keyPath: list].firstIndex(where: { $0.id == id }) {
+                optimistic[keyPath: list][position] = edit.applied(to: optimistic[keyPath: list][position])
+            }
+        }
+        apply(optimistic)
     }
 
     func schedule(_ id: UUID, on day: CivilDay?) {
-        attempt("scheduling a task") { try database.tasks.schedule(id: id, on: day) }
+        refreshStray(attempt("scheduling a task") { try database.tasks.schedule(id: id, on: day) })
     }
 
     func delete(_ id: UUID) {
         attempt("deleting a task") { try database.tasks.delete(id: id) }
+        if strays[id] != nil { strays[id] = nil }
     }
 
-    /// Writes the new order of one list. The list is reordered here first, so a dragged row
-    /// lands at once rather than when the observation catches up.
+    /// Writes the new order of one list, or of one day in Upcoming. The list is reordered here
+    /// first, so a dragged row lands at once rather than when the observation catches up.
     func reorder(_ ids: [UUID]) {
         let positions = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($1, $0) })
+        // Only the listed rows trade places; the rest, such as other days' tasks, stay put.
         func moved(_ tasks: [TaskItem]) -> [TaskItem] {
-            guard tasks.contains(where: { positions[$0.id] != nil }) else { return tasks }
-            return tasks.sorted { (positions[$0.id] ?? .max, $0.sortIndex) < (positions[$1.id] ?? .max, $1.sortIndex) }
+            let slots = tasks.indices.filter { positions[tasks[$0].id] != nil }
+            guard !slots.isEmpty else { return tasks }
+            let ordered = slots.map { tasks[$0] }.sorted { positions[$0.id, default: 0] < positions[$1.id, default: 0] }
+            var result = tasks
+            for (slot, task) in zip(slots, ordered) { result[slot] = task }
+            return result
         }
         var optimistic = overview
         optimistic.today = moved(overview.today)
@@ -154,8 +174,17 @@ final class TaskStore {
         // Observation notifies on every set; an unchanged list shouldn't re-render its rows.
         guard value != overview else { return }
         overview = value
-        index = Dictionary((value.today + value.inbox + value.upcoming).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        strays = strays.filter { index[$0.key] == nil }
+        let index = Dictionary((value.today + value.inbox + value.upcoming).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        if index != self.index { self.index = index }
+        if strays.keys.contains(where: { index[$0] != nil }) {
+            strays = strays.filter { index[$0.key] == nil }
+        }
+    }
+
+    /// The lists' observation doesn't cover strays, so a write to one updates it here.
+    private func refreshStray(_ task: TaskItem?) {
+        guard let task, let stray = strays[task.id], stray != task else { return }
+        strays[task.id] = task
     }
 
     @discardableResult

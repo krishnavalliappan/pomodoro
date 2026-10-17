@@ -119,7 +119,14 @@ private let cases: [QuickAddCase] = [
     .init(input: "Weird \\n path", title: "Weird \\n path"),
     .init(input: "Lone # sign", title: "Lone # sign"),
     .init(input: "Tag #work,", title: "Tag #work,"),
-    .init(input: "Issue #123", title: "Issue", tag: "123"),
+    .init(input: "Issue #123", title: "Issue #123"),
+    .init(input: "Review PR #42", title: "Review PR #42"),
+    .init(input: "Fix bug #123 ~2", title: "Fix bug #123", estimate: 2),
+    .init(input: "Fix bug #123 tomorrow", title: "Fix bug #123", day: 1),
+    .init(input: "#42 Triage #work", title: "#42 Triage", tag: "work"),
+    .init(input: "Ship #v2", title: "Ship", tag: "v2"),
+    .init(input: "Ship #2024q1", title: "Ship", tag: "2024q1"),
+    .init(input: "Plan #work #42", title: "Plan #42", tag: "work"),
 
     // Day
     .init(input: "Plan today", title: "Plan", day: 0),

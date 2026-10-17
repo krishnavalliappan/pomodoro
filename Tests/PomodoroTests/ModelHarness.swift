@@ -133,8 +133,9 @@ final class ModelHarness {
         var all: [TaskItem]
     }
 
-    /// A realistic day: six tasks today (one done, one over its estimate), two in the inbox, one
-    /// tomorrow, sessions logged against some, and a block on "Review PR" running now.
+    /// A realistic day: six tasks today (one done, one over its estimate), two in the inbox, two
+    /// upcoming on different days, sessions logged against some, and a block on "Review PR"
+    /// running now.
     @discardableResult
     func seedTasks() throws -> SeededTasks {
         let today = database.day(containing: Self.start)
@@ -156,6 +157,7 @@ final class ModelHarness {
         try add("Book flights", nil, day: nil)
         try add("Learn GRDB observation", 2, tag: "learning", day: nil)
         try add("Prepare demo", 2, day: tomorrow)
+        try add("Quarterly review", 3, day: CivilDay(year: 2026, month: 10, day: 20))
         try database.tasks.setDone(id: standup.id, true, at: Self.start - 3600)
 
         // Hour-long slots from 03:00 so nothing overlaps the block or the seeded day total.
@@ -171,6 +173,19 @@ final class ModelHarness {
         }
         try database.blocks.insert(TimeBlock(taskID: reviewPR.id, title: reviewPR.title, start: Self.start - 900, duration: 3600))
         return SeededTasks(writeSpec: writeSpec, reviewPR: reviewPR, all: created)
+    }
+
+    static let longTitle = "Draft the quarterly planning document for the platform team, covering risks, staffing and milestones"
+
+    /// A task whose title can't fit anywhere, estimated past the dot limit, beside an ordinary one.
+    @discardableResult
+    func seedLongTitle() throws -> TaskItem {
+        let today = database.day(containing: Self.start)
+        let long = try database.tasks.create(
+            title: Self.longTitle, notes: "Long notes run on and on, past the edge of the sidebar row", estimatePomodoros: 8,
+            tag: "planning", scheduledDay: today, createdAt: Self.start - 7200)
+        try database.tasks.create(title: "Inbox zero", estimatePomodoros: 1, scheduledDay: today, createdAt: Self.start - 7200)
+        return long
     }
 
     func sessionsToday() throws -> [FocusSession] {

@@ -9,21 +9,26 @@ struct PopoverActions {
     var quit: @MainActor () -> Void = { NSApplication.shared.terminate(nil) }
 }
 
+/// Sized to its content: the task list grows to at most five rows or folds away, so the popover
+/// is only as tall as what it shows.
 struct PopoverView: View {
-    static let size = CGSize(width: 320, height: 520)
+    static let width: CGFloat = 320
 
     let model: AppModel
     var actions = PopoverActions()
     /// Pre-filled quick-add text, for snapshots of the preview.
     var quickAddText = ""
+    /// Where the Today list remembers whether it's folded; injected so tests don't share state.
+    var defaults: UserDefaults
 
     /// Space types into the quick-add field rather than toggling the timer.
     @State private var isEditingTask = false
 
-    init(model: AppModel, actions: PopoverActions = PopoverActions(), quickAddText: String = "") {
+    init(model: AppModel, actions: PopoverActions = PopoverActions(), quickAddText: String = "", defaults: UserDefaults = .standard) {
         self.model = model
         self.actions = actions
         self.quickAddText = quickAddText
+        self.defaults = defaults
     }
 
     private var snapshot: TimerSnapshot { model.snapshot }
@@ -59,8 +64,9 @@ struct PopoverView: View {
             Spacer(minLength: 6)
             Divider()
             PopoverTaskSection(
-                model: model, openPlanner: actions.openPlanner, quickAddText: quickAddText, isEditing: $isEditingTask)
-            .equatable()
+                model: model, openPlanner: actions.openPlanner, quickAddText: quickAddText, isEditing: $isEditingTask,
+                defaults: defaults)
+                .equatable()
                 .padding(.vertical, 8)
             Divider()
             footer
@@ -69,7 +75,8 @@ struct PopoverView: View {
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 10)
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: Self.width)
+        .fixedSize(horizontal: false, vertical: true)
         .background(shortcuts)
         .background(Color(nsColor: .windowBackgroundColor))
     }

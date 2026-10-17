@@ -67,6 +67,13 @@ public struct TaskRepository: Sendable {
         }
     }
 
+    /// Writes only the fields `edit` names, merged into the row as it is now. Returns the
+    /// merged row.
+    @discardableResult
+    public func edit(id: UUID, _ edit: TaskEdit) throws -> TaskItem {
+        try modify(id: id) { $0 = edit.applied(to: $0) }
+    }
+
     /// Moves a task to a day, or back to the inbox with `nil`.
     @discardableResult
     public func schedule(id: UUID, on day: CivilDay?) throws -> TaskItem {
@@ -247,5 +254,27 @@ public struct TaskOverview: Equatable, Sendable {
 
     public func actuals(for id: UUID) -> TaskActuals {
         actuals[id] ?? .zero
+    }
+
+    /// `upcoming`, one group per day, soonest first. The store orders by day before list
+    /// order, so a drag can only reorder within one group.
+    public var upcomingByDay: [DayGroup] {
+        var groups: [DayGroup] = []
+        for task in upcoming {
+            guard let day = task.scheduledDay else { continue }
+            if groups.last?.day == day {
+                groups[groups.count - 1].tasks.append(task)
+            } else {
+                groups.append(DayGroup(day: day, tasks: [task]))
+            }
+        }
+        return groups
+    }
+
+    public struct DayGroup: Identifiable, Equatable, Sendable {
+        public var day: CivilDay
+        public var tasks: [TaskItem]
+
+        public var id: CivilDay { day }
     }
 }

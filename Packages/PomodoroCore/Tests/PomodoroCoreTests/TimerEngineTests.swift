@@ -1363,6 +1363,47 @@ struct TimerEngineAssignTaskTests {
         #expect(kinds(engine.assignTask(UUID())) == ["focusEnded"])
     }
 
+    @Test func afterADeliveredEndItEmitsNothingMore() {
+        let (engine, clock) = makeEngine()
+        engine.start(taskID: UUID())
+        clock.advance(by: focus + 30)
+        #expect(kinds(engine.reconcile()) == ["focusEnded"])
+        let second = UUID()
+        #expect(engine.assignTask(second).isEmpty, "no second end")
+        #expect(engine.taskID == second)
+        #expect(engine.status == .overtime(since: t0 + focus), "timing is untouched")
+    }
+
+    @Test func pausedStaysPausedThroughARestore() throws {
+        let (engine, clock) = makeEngine()
+        engine.start(taskID: UUID())
+        clock.advance(by: 300)
+        engine.pause()
+        let id = UUID()
+        #expect(engine.assignTask(id).isEmpty)
+        let data = try JSONEncoder().encode(engine.state)
+        let restored = TimerEngine(clock: clock, state: try JSONDecoder().decode(TimerState.self, from: data))
+        #expect(restored.taskID == id)
+        #expect(restored.status == .paused)
+        #expect(restored.snapshot().elapsed == 300)
+    }
+
+    /// An overdue boundary auto-starts the break first, so the finished focus keeps its task.
+    @Test func anOverdueAutoStartRecordsTheOldTaskFirst() throws {
+        let (engine, clock) = makeEngine(TimerConfiguration(autoStartBreaks: true))
+        let first = UUID()
+        let second = UUID()
+        engine.start(taskID: first)
+        clock.advance(by: focus + 30)
+        let events = engine.assignTask(second)
+        #expect(records(events).map(\.taskID) == [first])
+        #expect(engine.phase == .shortBreak)
+        #expect(engine.taskID == second)
+        engine.skip()
+        #expect(engine.phase == .focus)
+        #expect(engine.taskID == second)
+    }
+
     @Test func survivesPersistence() throws {
         let (engine, clock) = makeEngine()
         let id = UUID()

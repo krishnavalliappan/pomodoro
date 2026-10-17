@@ -27,7 +27,8 @@ struct TaskDragItem: Transferable, Hashable, Sendable {
 }
 
 /// Estimate vs. actual: one dot per estimated pomodoro, filled as they're done. Pomodoros past
-/// the estimate show in the overtime color, so running over reads at a glance.
+/// the estimate show in the overtime color, so running over reads at a glance. Past `maxDots`
+/// a row of dots stops being countable, so it becomes a compact "7/4".
 struct EstimateDots: View {
     static let maxDots = 6
 
@@ -36,25 +37,38 @@ struct EstimateDots: View {
     var size: CGFloat = 6
 
     private var total: Int { max(estimate ?? 0, actual) }
+    private var isOver: Bool { estimate.map { actual > $0 } ?? false }
 
     var body: some View {
         if total > 0 {
+            indicator
+                .help(accessibilityText)
+                .accessibilityElement()
+                .accessibilityLabel(accessibilityText)
+        }
+    }
+
+    @ViewBuilder
+    private var indicator: some View {
+        if total > Self.maxDots {
+            Text(countText)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(isOver ? AnyShapeStyle(PhaseStyle.overtimeTint) : AnyShapeStyle(.secondary))
+                .fixedSize()
+        } else {
             HStack(spacing: 3) {
-                ForEach(0..<min(total, Self.maxDots), id: \.self) { index in
+                ForEach(0..<total, id: \.self) { index in
                     Circle()
                         .fill(fill(at: index))
                         .frame(width: size, height: size)
                 }
-                if total > Self.maxDots {
-                    Text("+\(total - Self.maxDots)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
             }
-            .accessibilityElement()
-            .accessibilityLabel(accessibilityText)
         }
+    }
+
+    var countText: String {
+        estimate.map { "\(actual)/\($0)" } ?? "\(actual)"
     }
 
     private func fill(at index: Int) -> AnyShapeStyle {
