@@ -27,9 +27,9 @@ struct PopoverStatsTab: View {
             Text("Today")
                 .font(.title3.weight(.semibold))
             HStack(spacing: 8) {
-                StatTile(value: Stats.durationText(summary.focusedSeconds), label: "Focus")
-                StatTile(value: "\(summary.completedPomodoros)", label: "Pomodoros")
-                StatTile(value: "\(summary.streak.current)", label: "Day streak")
+                TodayTile(value: Stats.durationText(summary.focusedSeconds), label: "Focus")
+                TodayTile(value: "\(summary.completedPomodoros)", label: "Pomodoros")
+                TodayTile(value: "\(summary.streak.current)", label: "Day streak")
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Self.accessibilityText(summary))
@@ -44,7 +44,7 @@ struct PopoverStatsTab: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
-                Sparkline(days: days, today: summary.day, calendar: model.database.calendar, height: Self.barHeight)
+                WeekSparkline(days: days, today: summary.day, calendar: model.database.calendar, height: Self.barHeight)
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(PopoverStyle.surface))
@@ -68,7 +68,7 @@ struct PopoverStatsTab: View {
     }
 }
 
-private struct StatTile: View {
+private struct TodayTile: View {
     var value: String
     var label: String
 
@@ -92,7 +92,7 @@ private struct StatTile: View {
 
 /// One bar per day, scaled to the busiest; today in the accent. Plain shapes rather than
 /// Charts, so a bar is always exactly the height its share gives it.
-private struct Sparkline: View {
+private struct WeekSparkline: View {
     var days: [DayFocus]
     var today: CivilDay
     var calendar: Calendar
