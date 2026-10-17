@@ -8,7 +8,7 @@ struct PopoverView: View {
         VStack(spacing: 12) {
             Text("Pomodoro")
                 .font(.title2.weight(.semibold))
-            Text("Focus timer coming soon")
+            Text("Focus timer coming soon!!")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
