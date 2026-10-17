@@ -38,7 +38,7 @@ struct TimerStateStoreTests {
             #expect(loaded.state == engine.state)
             #expect(loaded.profile == profile)
 
-            let restored = TimerEngine(configuration: TimerConfiguration(profile: loaded.profile), clock: clock, state: loaded.state)
+            let restored = TimerEngine(configuration: TimerConfiguration(profile: try #require(loaded.profile)), clock: clock, state: loaded.state)
             #expect(restored.snapshot() == engine.snapshot())
             restored.resume()
             clock.advance(by: 45 * 60)
@@ -57,5 +57,12 @@ struct TimerStateStoreTests {
         let data = try JSONEncoder().encode(store.load())
         let decoded = try JSONDecoder().decode(PersistedTimer.self, from: data)
         #expect(decoded.state.status == .overtime(since: clock.now - 60))
+    }
+
+    @Test func defaultSessionRoundTripsWithoutAProfile() throws {
+        let store = InMemoryTimerStateStore()
+        try store.save(PersistedTimer(state: TimerState(), profile: nil))
+        let data = try JSONEncoder().encode(store.load())
+        #expect(try JSONDecoder().decode(PersistedTimer.self, from: data).profile == nil)
     }
 }

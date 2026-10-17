@@ -92,15 +92,25 @@ final class ModelHarness {
         players = Dictionary(uniqueKeysWithValues: SoundID.allCases.filter { $0 != .none }.map { ($0, RecordingSoundPlayer()) })
     }
 
-    func makeModel() -> AppModel {
+    func makeModel(onEngineUpdate: AppModel.EngineUpdate? = nil) -> AppModel {
         AppModel(
             clock: clock,
             settingsStore: settingsStore,
             timerStore: timerStore,
             database: database,
             sound: SoundService(players: players),
-            scheduler: scheduler
+            scheduler: scheduler,
+            onEngineUpdate: onEngineUpdate
         )
+    }
+
+    /// Edits the default (Classic) preset before a model loads the settings.
+    func updateDefaultProfile(_ change: (inout TimerProfile) -> Void) {
+        var settings = settingsStore.load()
+        var preset = settings.defaultPreset
+        change(&preset.profile)
+        try? settings.updatePreset(preset)
+        try? settingsStore.save(settings)
     }
 
     func plays(_ sound: SoundID) -> Int {

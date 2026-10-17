@@ -67,9 +67,18 @@ final class PopoverViewSnapshotTests: XCTestCase {
         assertPopover(model, "override")
     }
 
+    func testPresetOneOff() throws {
+        let h = try harness()
+        let model = h.makeModel()
+        model.toggleOneOffPreset(Preset.deep.id)
+        assertPopover(model, "presetOnce")
+    }
+
     func testPlaceholderWindows() {
-        Snapshot.assertLightAndDark(PlannerPlaceholderView(), size: PlannerPlaceholderView.size, name: "PlannerPlaceholderView")
-        Snapshot.assertLightAndDark(SettingsPlaceholderView(), size: SettingsPlaceholderView.size, name: "SettingsPlaceholderView")
+        Snapshot.assertLightAndDark(
+            PlannerPlaceholderView(), size: PlannerPlaceholderView.size, name: "PlannerPlaceholderView", variant: "placeholder")
+        Snapshot.assertLightAndDark(
+            SettingsPlaceholderView(), size: SettingsPlaceholderView.size, name: "SettingsPlaceholderView", variant: "placeholder")
     }
 
     // MARK: - Helpers

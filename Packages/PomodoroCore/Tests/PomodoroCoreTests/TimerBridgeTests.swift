@@ -19,10 +19,10 @@ struct TimerBridgeTests {
         #expect(TimerConfiguration(profile: .classic) == TimerConfiguration())
     }
 
-    @Test func overriddenProfileReachesTheEngine() {
+    @Test func overriddenProfileReachesTheEngine() throws {
         var planner = SessionPlanner()
         planner.setOverride(SessionOverride(parsing: "40/8"))
-        let configuration = TimerConfiguration(profile: planner.consumeProfile(base: .classic))
+        let configuration = TimerConfiguration(profile: try #require(planner.consumeProfile(in: .default)))
         #expect(configuration.focusDuration == 40 * 60)
         #expect(configuration.shortBreakDuration == 8 * 60)
         #expect(configuration.longBreakDuration == 8 * 60)

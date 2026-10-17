@@ -131,7 +131,7 @@ final class AppModelTests: XCTestCase {
         h.scheduler.advance(by: 60)
         model.resume()
         h.scheduler.advance(by: 300)
-        model.stop()
+        model.stopAndLog()
 
         let session = try XCTUnwrap(try h.sessionsToday().first)
         XCTAssertFalse(session.completed)
@@ -168,15 +168,118 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(h.settingsStore.load().defaultPresetID, Preset.classic.id, "defaults untouched")
     }
 
-    func testSelectingAPresetChangesTheDefaultAndClearsTheOverride() throws {
+    func testPresetChipIsAOneOffAndNeverTheDefault() throws {
         let h = try ModelHarness()
         let model = h.makeModel()
         model.applyOverride("40")
-        model.selectPreset(Preset.deep.id)
-        XCTAssertNil(model.pendingOverride)
-        XCTAssertEqual(h.settingsStore.load().defaultPresetID, Preset.deep.id)
+        model.toggleOneOffPreset(Preset.deep.id)
+        XCTAssertEqual(model.pendingOneOff, .preset(Preset.deep.id), "replaces the typed one-off")
+        XCTAssertEqual(model.nextFocusDuration, 50 * 60)
+
         model.startFocus()
         XCTAssertEqual(model.snapshot.plannedDuration, 50 * 60)
+        model.skip()
+        XCTAssertEqual(model.snapshot.plannedDuration, 10 * 60)
+        model.skip()
+        XCTAssertEqual(model.snapshot.plannedDuration, focus)
+        XCTAssertEqual(h.settingsStore.load().defaultPresetID, Preset.classic.id)
+        XCTAssertEqual(model.settings.defaultPresetID, Preset.classic.id)
+    }
+
+    func testTappingAPresetChipAgainOrTheDefaultClearsIt() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.toggleOneOffPreset(Preset.quick.id)
+        model.toggleOneOffPreset(Preset.quick.id)
+        XCTAssertNil(model.pendingOneOff)
+        model.toggleOneOffPreset(Preset.quick.id)
+        model.toggleOneOffPreset(Preset.classic.id)
+        XCTAssertNil(model.pendingOneOff, "the default's chip means no one-off")
+        model.applyOverride("40")
+        model.clearOneOff()
+        XCTAssertNil(model.pendingOneOff)
+    }
+
+    func testOneOffQueuedDuringABreakIsTakenBySkip() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.startFocus()
+        model.startBreak()
+        XCTAssertTrue(model.applyOverride("40/8"))
+        model.skip()
+        XCTAssertEqual(model.snapshot.phase, .focus)
+        XCTAssertEqual(model.snapshot.plannedDuration, 40 * 60)
+        XCTAssertNil(model.pendingOneOff)
+        model.skip()
+        XCTAssertEqual(model.snapshot.plannedDuration, 8 * 60, "its break follows")
+        model.skip()
+        XCTAssertEqual(model.snapshot.plannedDuration, focus, "and the next focus is back on the default")
+    }
+
+    func testSkippingTheOneOffFocusKeepsItsBreak() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        model.applyOverride("50/10")
+        model.startFocus()
+        h.scheduler.advance(by: 60)
+        model.skip()
+        XCTAssertEqual(model.snapshot.phase, .shortBreak)
+        XCTAssertEqual(model.snapshot.plannedDuration, 10 * 60)
+    }
+
+    func testOneOffQueuedDuringABreakIsTakenByAutoStart() throws {
+        let h = try ModelHarness()
+        h.updateDefaultProfile { $0.autoStartFocus = true }
+        let model = h.makeModel()
+        model.startFocus()
+        model.startBreak()
+        model.applyOverride("40/8")
+        h.scheduler.advance(by: 5 * 60)
+        XCTAssertEqual(model.snapshot.phase, .focus)
+        XCTAssertEqual(model.snapshot.plannedDuration, 40 * 60)
+        XCTAssertNil(model.pendingOneOff)
+    }
+
+    func testOneOffChainsThroughAutoStartsAndStopsAtTheNextFocus() throws {
+        let h = try ModelHarness(display: .iconOnly)
+        h.updateDefaultProfile {
+            $0.autoStartBreaks = true
+            $0.autoStartFocus = true
+        }
+        let model = h.makeModel()
+        model.applyOverride("50/10")
+        model.startFocus()
+        h.scheduler.advance(by: 50 * 60)
+        XCTAssertEqual(model.snapshot.phase, .shortBreak)
+        XCTAssertEqual(model.snapshot.plannedDuration, 10 * 60, "auto break")
+        h.scheduler.advance(by: 10 * 60)
+        XCTAssertEqual(model.snapshot.phase, .focus)
+        XCTAssertEqual(model.snapshot.plannedDuration, focus, "auto focus is back on the default")
+        h.scheduler.advance(by: focus)
+        XCTAssertEqual(model.snapshot.plannedDuration, 5 * 60, "and so is its break")
+    }
+
+    func testOneOffDoesNotLeakIntoAFocusChainedInOneReconcile() throws {
+        let h = try ModelHarness(display: .iconOnly)
+        h.updateDefaultProfile {
+            $0.autoStartBreaks = true
+            $0.autoStartFocus = true
+        }
+        var model: AppModel? = h.makeModel()
+        model?.applyOverride("50/10")
+        model?.startFocus()
+        model?.shutdown()
+        model = nil
+        // Relaunch at minute 60: the one-off focus and its break both ended while quit.
+        h.clock.advance(by: 60 * 60)
+
+        let relaunched = h.makeModel()
+        XCTAssertEqual(relaunched.snapshot.phase, .focus)
+        XCTAssertEqual(relaunched.snapshot.plannedDuration, focus)
+        XCTAssertNil(try XCTUnwrap(h.timerStore.load()).profile, "persisted as a default session")
+        h.scheduler.advance(by: focus)
+        XCTAssertEqual(relaunched.snapshot.phase, .shortBreak)
+        XCTAssertEqual(relaunched.snapshot.plannedDuration, 5 * 60)
     }
 
     // MARK: Prompts
@@ -202,7 +305,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(model.prompt)
         h.scheduler.advance(by: 5 * 60 + 1)
         XCTAssertEqual(model.prompt, .breakEnded)
-        model.stop()
+        model.stopAndLog()
         XCTAssertEqual(model.snapshot.phase, .idle)
         XCTAssertNil(model.prompt)
     }
@@ -236,11 +339,20 @@ final class AppModelTests: XCTestCase {
     }
 
     func testOneSoundPerBatch() {
-        XCTAssertEqual(AppModel.sound(for: [.focusEnded, .phaseStarted(.shortBreak)]), .focusEnd)
-        XCTAssertEqual(AppModel.sound(for: [.breakEnded, .phaseStarted(.focus)]), .breakEnd)
-        XCTAssertEqual(AppModel.sound(for: [.phaseStarted(.focus)]), .start)
-        XCTAssertNil(AppModel.sound(for: [.nudge(overtime: 600)]))
-        XCTAssertNil(AppModel.sound(for: []))
+        XCTAssertEqual(AppModel.sound(for: [.focusEnded, .phaseStarted(.shortBreak)], phase: .shortBreak), .focusEnd)
+        XCTAssertEqual(AppModel.sound(for: [.breakEnded, .phaseStarted(.focus)], phase: .focus), .breakEnd)
+        XCTAssertEqual(AppModel.sound(for: [.phaseStarted(.focus)], phase: .focus), .start)
+        XCTAssertEqual(AppModel.sound(for: [.nudge(overtime: 600)], phase: .focus), .focusEnd)
+        XCTAssertEqual(AppModel.sound(for: [.nudge(overtime: 600)], phase: .longBreak), .breakEnd)
+        XCTAssertNil(AppModel.sound(for: [], phase: .focus))
+    }
+
+    func testOvertimeNudgeReplaysTheEndChime() throws {
+        let h = try ModelHarness(display: .iconOnly)
+        let model = h.makeModel()
+        model.startFocus()
+        h.scheduler.advance(by: focus + TimerProfile.defaultNudgeInterval)
+        XCTAssertEqual(h.plays(.chimeFocusEnd), 2, "the end, then one nudge")
     }
 
     // MARK: Relaunch
@@ -275,18 +387,118 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(h.plays(.chimeFocusEnd), 1)
     }
 
+    func testShutdownLeavesNoTimers() throws {
+        let h = try ModelHarness(display: .time)
+        let model = h.makeModel()
+        model.startFocus()
+        XCTAssertFalse(h.scheduler.pendingDates.isEmpty)
+        model.shutdown()
+        XCTAssertEqual(h.scheduler.pendingDates, [])
+        XCTAssertFalse(model.isRefreshingEverySecond)
+    }
+
     // MARK: Seams
 
-    func testEngineEventsReachTheHook() throws {
+    /// Records every `onEngineUpdate` call as the event kinds it carried.
+    private final class UpdateLog {
+        var batches: [[TimerEvent]] = []
+        var phases: [TimerPhase] = []
+    }
+
+    private func observe(_ model: AppModel) -> UpdateLog {
+        let log = UpdateLog()
+        model.onEngineUpdate = { engine, events in
+            log.batches.append(events)
+            log.phases.append(engine.phase)
+        }
+        return log
+    }
+
+    func testEveryActionReachesTheUpdateHookEvenWithoutEvents() throws {
         let h = try ModelHarness()
         let model = h.makeModel()
-        var batches: [[TimerEvent]] = []
-        model.onEngineEvents = { batches.append($0) }
+        let log = observe(model)
         model.startFocus()
         model.pause()
         h.scheduler.advance(by: 60)
         model.resume()
-        h.scheduler.advance(by: focus)
-        XCTAssertEqual(batches, [[.phaseStarted(.focus)], [.focusEnded]])
+        model.extend(minutes: 5)
+        XCTAssertEqual(log.batches, [[.phaseStarted(.focus)], [], [], []], "pause, resume and extend return no events")
+        XCTAssertEqual(log.phases, [.focus, .focus, .focus, .focus])
+
+        h.scheduler.advance(by: 30 * 60)
+        XCTAssertEqual(log.batches.last, [.focusEnded], "the boundary reconcile")
+        model.keepGoing()
+        XCTAssertEqual(log.batches.last, [], "silencing nudges")
+        model.startBreak()
+        model.stopAndLog()
+        XCTAssertEqual(log.batches.last, [], "stopping a break")
+        XCTAssertEqual(log.phases.last, .idle)
+    }
+
+    func testSettingsChangesReachTheUpdateHook() throws {
+        let h = try ModelHarness()
+        let model = h.makeModel()
+        let log = observe(model)
+        model.startFocus()
+        model.updateSettings { _ = try? $0.updatePreset(Self.classic { $0.nudgeInterval = nil }) }
+        XCTAssertEqual(log.batches.count, 2)
+        XCTAssertEqual(log.batches.last, [])
+        model.updateSettings { _ = $0 }
+        XCTAssertEqual(log.batches.count, 2, "an unchanged setting isn't an update")
+    }
+
+    func testLaunchReconcileReachesAnUpdateHookPassedToInit() throws {
+        let h = try ModelHarness()
+        var model: AppModel? = h.makeModel()
+        model?.startFocus()
+        model?.shutdown()
+        model = nil
+        h.clock.advance(by: focus + 180)
+
+        var batches: [[TimerEvent]] = []
+        let relaunched = h.makeModel { _, events in batches.append(events) }
+        XCTAssertEqual(batches, [[.focusEnded]], "the overdue end is announced once, at launch")
+        XCTAssertEqual(relaunched.prompt, .focusEnded)
+    }
+
+    // MARK: Boundary rescheduling
+
+    func testEnablingNudgesDuringBreakOvertimeSchedulesTheNextOne() throws {
+        let h = try ModelHarness(display: .iconOnly)
+        h.updateDefaultProfile { $0.nudgeInterval = nil }
+        let model = h.makeModel()
+        model.startFocus()
+        model.startBreak()
+        h.scheduler.advance(by: 5 * 60 + 30)
+        XCTAssertEqual(model.snapshot.status, .overtime(since: ModelHarness.start + 5 * 60))
+        XCTAssertEqual(h.scheduler.pendingDates, [], "no nudges, nothing to wait for")
+
+        model.updateSettings { _ = try? $0.updatePreset(Self.classic { $0.nudgeInterval = 120 }) }
+        XCTAssertEqual(h.scheduler.pendingDates, [ModelHarness.start + 5 * 60 + 120])
+        h.scheduler.advance(by: 90)
+        XCTAssertEqual(h.plays(.chimeBreakEnd), 2, "the end, then the new nudge")
+    }
+
+    func testChangingOrDisablingNudgesReschedules() throws {
+        let h = try ModelHarness(display: .iconOnly)
+        let model = h.makeModel()
+        model.startFocus()
+        model.startBreak()
+        let end = ModelHarness.start + 5 * 60
+        h.scheduler.advance(by: 5 * 60 + 30)
+        XCTAssertEqual(h.scheduler.pendingDates, [end + TimerProfile.defaultNudgeInterval])
+
+        model.updateSettings { _ = try? $0.updatePreset(Self.classic { $0.nudgeInterval = 180 }) }
+        XCTAssertEqual(h.scheduler.pendingDates, [end + 180], "the old deadline is gone")
+
+        model.updateSettings { _ = try? $0.updatePreset(Self.classic { $0.nudgeInterval = nil }) }
+        XCTAssertEqual(h.scheduler.pendingDates, [])
+    }
+
+    private static func classic(_ change: (inout TimerProfile) -> Void) -> Preset {
+        var preset = Preset.classic
+        change(&preset.profile)
+        return preset
     }
 }

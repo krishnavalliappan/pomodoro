@@ -49,15 +49,14 @@ struct SessionOverrideTests {
     @Test func overrideAppliesToNextSessionOnly() {
         var planner = SessionPlanner()
         planner.setOverride(SessionOverride(focus: 50 * 60, break: 10 * 60))
-        #expect(planner.previewProfile(base: .classic).focusDuration == 50 * 60)
+        #expect(planner.previewProfile(in: .default).focusDuration == 50 * 60)
         #expect(planner.pendingOverride != nil)
 
-        let first = planner.consumeProfile(base: .classic)
-        #expect(first.focusDuration == 50 * 60)
+        let first = planner.consumeProfile(in: .default)
+        #expect(first?.focusDuration == 50 * 60)
         #expect(planner.pendingOverride == nil)
 
-        let second = planner.consumeProfile(base: .classic)
-        #expect(second == .classic)
+        #expect(planner.consumeProfile(in: .default) == nil, "the next focus is back on the default")
     }
 
     @Test func emptyOverrideIsIgnored() {
@@ -68,8 +67,8 @@ struct SessionOverrideTests {
 
     @Test func clearOverrideDropsIt() {
         var planner = SessionPlanner(pendingOverride: SessionOverride(focus: 30 * 60))
-        planner.clearOverride()
-        #expect(planner.consumeProfile(base: .classic) == .classic)
+        planner.clear()
+        #expect(planner.consumeProfile(in: .default) == nil)
     }
 
     @Test func overrideNeverMutatesOrPersistsDefaults() throws {
@@ -77,12 +76,37 @@ struct SessionOverrideTests {
         let settings = store.load()
         var planner = SessionPlanner()
         planner.setOverride(SessionOverride(focus: 50 * 60, break: 10 * 60))
-        _ = planner.consumeProfile(base: settings.defaultProfile)
+        _ = planner.consumeProfile(in: settings)
         try store.save(settings)
 
         #expect(store.load() == .default)
         #expect(store.load().defaultProfile == .classic)
         let json = String(decoding: try settings.encoded(), as: UTF8.self)
         #expect(!json.contains("override"))
+    }
+
+    @Test func presetOneOffKeepsItsOwnBreaks() {
+        var planner = SessionPlanner()
+        planner.set(.preset(Preset.deep.id))
+        #expect(planner.pendingPresetID == Preset.deep.id)
+        #expect(planner.pendingOverride == nil)
+        #expect(planner.previewProfile(in: .default) == .deep)
+        #expect(planner.consumeProfile(in: .default) == .deep)
+        #expect(planner.pending == nil)
+    }
+
+    @Test func deletedPresetFallsBackToTheDefault() {
+        var planner = SessionPlanner(pending: .preset(UUID()))
+        #expect(planner.previewProfile(in: .default) == .classic)
+        #expect(planner.consumeProfile(in: .default) == nil)
+    }
+
+    @Test func customOneOffLayersOnTheCurrentDefault() throws {
+        var settings = AppSettings.default
+        try settings.setDefaultPreset(id: Preset.quick.id)
+        let planner = SessionPlanner(pendingOverride: SessionOverride(focus: 40 * 60))
+        let profile = planner.previewProfile(in: settings)
+        #expect(profile.focusDuration == 40 * 60)
+        #expect(profile.shortBreakDuration == TimerProfile.quick.shortBreakDuration)
     }
 }

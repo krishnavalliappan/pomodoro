@@ -27,4 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.model = model
         menuBar = MenuBarController(model: model, windows: windows)
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.shutdown()
+    }
 }

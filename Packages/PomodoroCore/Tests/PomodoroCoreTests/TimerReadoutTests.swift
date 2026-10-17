@@ -99,6 +99,7 @@ struct MenuBarTitleTests {
         #expect(MenuBarTitle.text(for: snapshot(.shortBreak, .overtime(since: t0), planned: 300, elapsed: 340), mode: .time) == "+00:40")
         #expect(MenuBarTitle.text(for: snapshot(.focus, .paused, elapsed: 6 * 60 + 18), mode: .time) == "⏸ 18:42")
         #expect(MenuBarTitle.text(for: snapshot(.focus, .paused, elapsed: 25 * 60 + 5), mode: .time) == "⏸ +00:05")
+        #expect(MenuBarTitle.text(for: snapshot(.shortBreak, .paused, planned: 300, elapsed: 110), mode: .time) == "⏸ 03:10")
         #expect(MenuBarTitle.text(for: snapshot(elapsed: 0), mode: .time, taskTitle: "Write spec") == "🍅 25:00")
     }
 

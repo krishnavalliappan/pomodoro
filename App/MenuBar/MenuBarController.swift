@@ -44,7 +44,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     static func symbol(for snapshot: TimerSnapshot) -> String {
         switch snapshot.phase {
         case .idle: return "timer"
-        case .focus where snapshot.status == .paused: return "pause.circle"
+        case _ where snapshot.status == .paused: return "pause.circle"
         case .focus: return TimerReadout(snapshot).isOvertime ? "exclamationmark.circle" : "timer.circle.fill"
         case .shortBreak, .longBreak: return "cup.and.saucer.fill"
         }

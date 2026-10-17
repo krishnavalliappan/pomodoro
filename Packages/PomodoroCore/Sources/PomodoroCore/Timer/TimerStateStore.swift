@@ -1,12 +1,13 @@
 import Foundation
 
-/// The engine state plus the profile the session in progress runs on, which differs from the
-/// default after a one-off override. Saved so a running session survives a relaunch.
+/// The engine state plus the one-off profile the session in progress runs on, if any. Saved so a
+/// running session survives a relaunch.
 public struct PersistedTimer: Codable, Equatable, Sendable {
     public var state: TimerState
-    public var profile: TimerProfile
+    /// `nil` when the session follows the default profile, so a settings change still reaches it.
+    public var profile: TimerProfile?
 
-    public init(state: TimerState, profile: TimerProfile) {
+    public init(state: TimerState, profile: TimerProfile?) {
         self.state = state
         self.profile = profile
     }

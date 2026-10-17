@@ -17,8 +17,9 @@ struct PopoverView: View {
 
     private var snapshot: TimerSnapshot { model.snapshot }
     private var style: PhaseStyle { PhaseStyle(snapshot) }
-    /// Chips set up the next focus, so they only show when one isn't in progress.
-    private var showsPlanning: Bool { model.prompt == nil && snapshot.phase != .focus }
+    /// Chips set up the next focus, so they only show before one: not during a focus or break.
+    private var showsPlanning: Bool { snapshot.phase == .idle }
+    private var isPaused: Bool { snapshot.status == .paused }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,13 +28,14 @@ struct PopoverView: View {
             TimerRing(
                 progress: snapshot.phase == .idle ? 0 : snapshot.progress,
                 tint: style.tint,
+                isDimmed: isPaused,
                 diameter: model.prompt == nil ? 168 : 116,
                 readout: readout,
                 caption: caption
             )
             Spacer(minLength: 10)
             if let prompt = model.prompt {
-                DecisionCard(prompt: prompt, model: model, tint: style.tint)
+                DecisionCard(prompt: prompt, model: model, style: style)
             } else {
                 controls
             }
@@ -65,6 +67,12 @@ struct PopoverView: View {
             Label(style.title, systemImage: style.symbol)
                 .font(.headline)
                 .foregroundStyle(style.tint)
+            if isPaused {
+                Image(systemName: "pause.circle.fill")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Paused")
+            }
             Spacer()
             Text(roundText)
                 .font(.subheadline)
@@ -114,16 +122,16 @@ struct PopoverView: View {
     private var primaryControl: some View {
         switch (snapshot.phase, snapshot.status) {
         case (.idle, _):
-            ProminentButton(title: "Start focus", symbol: "play.fill", tint: style.tint, action: model.startFocus)
+            ProminentButton(title: "Start focus", symbol: "play.fill", fill: style.fill, action: model.startFocus)
         case (_, .paused):
-            ProminentButton(title: "Resume", symbol: "play.fill", tint: style.tint, action: model.resume)
+            ProminentButton(title: "Resume", symbol: "play.fill", fill: style.fill, action: model.resume)
         case (.focus, .overtime):
             // Kept going past the prompt: the break is still the natural next step.
-            ProminentButton(title: "Start break", symbol: "cup.and.saucer.fill", tint: style.tint, action: model.startBreak)
+            ProminentButton(title: "Start break", symbol: "cup.and.saucer.fill", fill: style.fill, action: model.startBreak)
         case (_, .overtime):
-            ProminentButton(title: "Start focus", symbol: "play.fill", tint: style.tint, action: model.startFocus)
+            ProminentButton(title: "Start focus", symbol: "play.fill", fill: style.fill, action: model.startFocus)
         default:
-            ProminentButton(title: "Pause", symbol: "pause.fill", tint: style.tint, action: model.pause)
+            ProminentButton(title: "Pause", symbol: "pause.fill", fill: style.fill, action: model.pause)
         }
     }
 
@@ -135,7 +143,7 @@ struct PopoverView: View {
             IconButton(text: "+5", help: "Add 5 minutes") { model.extend(minutes: 5) }
             IconButton(symbol: "forward.end.fill", help: snapshot.phase == .focus ? "Skip to break" : "Skip to focus", action: model.skip)
         }
-        IconButton(symbol: "stop.fill", help: snapshot.phase == .focus ? "Stop and log (⌘.)" : "Stop (⌘.)", action: model.stop)
+        IconButton(symbol: "stop.fill", help: snapshot.phase == .focus ? "Stop and log (⌘.)" : "Stop (⌘.)", action: model.stopAndLog)
     }
 
     private var taskLine: some View {
@@ -176,7 +184,7 @@ struct PopoverView: View {
         ZStack {
             Button("Start or pause", action: model.toggle)
                 .keyboardShortcut(.space, modifiers: [])
-            Button("Stop", action: model.stop)
+            Button("Stop", action: model.stopAndLog)
                 .keyboardShortcut(".", modifiers: .command)
         }
         .frame(width: 0, height: 0)
@@ -192,28 +200,39 @@ struct PhaseStyle {
     static let breakTint = Color(nsColor: .systemTeal)
     static let overtimeTint = Color(nsColor: .systemOrange)
 
+    // Button fills: each tint darkened until a white label reaches 4.5:1 (5.2–5.7:1). The system
+    // tints only manage 2–3.6:1. Fixed, because the fill sits under white text in both appearances.
+    static let focusFill = Color(red: 0xC4 / 255, green: 0x28 / 255, blue: 0x1C / 255)
+    static let breakFill = Color(red: 0x00 / 255, green: 0x78 / 255, blue: 0x8A / 255)
+    static let overtimeFill = Color(red: 0xB2 / 255, green: 0x50 / 255, blue: 0x00 / 255)
+
     var title: String
     var symbol: String
     var tint: Color
+    var fill: Color
 
     init(_ snapshot: TimerSnapshot) {
         let overtime = TimerReadout(snapshot).isOvertime
         switch snapshot.phase {
-        case .idle:
-            self.init(title: "Ready to focus", symbol: "timer", tint: Self.focusTint)
-        case .focus:
-            self.init(title: "Focus", symbol: "brain.head.profile", tint: overtime ? Self.overtimeTint : Self.focusTint)
-        case .shortBreak:
-            self.init(title: "Short break", symbol: "cup.and.saucer.fill", tint: overtime ? Self.overtimeTint : Self.breakTint)
-        case .longBreak:
-            self.init(title: "Long break", symbol: "sofa.fill", tint: overtime ? Self.overtimeTint : Self.breakTint)
-        }
-    }
-
-    init(title: String, symbol: String, tint: Color) {
+        let (title, symbol) =
+            switch snapshot.phase {
+            case .idle: ("Ready to focus", "timer")
+            case .focus: ("Focus", "brain.head.profile")
+            case .shortBreak: ("Short break", "cup.and.saucer.fill")
+            case .longBreak: ("Long break", "sofa.fill")
+            }
         self.title = title
         self.symbol = symbol
-        self.tint = tint
+        if overtime {
+            tint = Self.overtimeTint
+            fill = Self.overtimeFill
+        } else if snapshot.phase.isBreak {
+            tint = Self.breakTint
+            fill = Self.breakFill
+        } else {
+            tint = Self.focusTint
+            fill = Self.focusFill
+        }
     }
 }
 
@@ -222,6 +241,8 @@ struct PhaseStyle {
 struct TimerRing: View {
     var progress: Double
     var tint: Color
+    /// Paused: the ring and digits fade so a frozen timer doesn't read as running.
+    var isDimmed = false
     var diameter: CGFloat
     var readout: String
     var caption: String
@@ -232,11 +253,12 @@ struct TimerRing: View {
                 .stroke(.quaternary, lineWidth: 8)
             Circle()
                 .trim(from: 0, to: min(max(progress, 0), 1))
-                .stroke(tint, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .stroke(tint.opacity(isDimmed ? 0.35 : 1), style: StrokeStyle(lineWidth: 8, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 2) {
                 Text(readout)
                     .font(.system(size: diameter * 0.24, weight: .light, design: .rounded))
+                    .foregroundStyle(isDimmed ? .secondary : .primary)
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
@@ -255,7 +277,8 @@ struct TimerRing: View {
 struct ProminentButton: View {
     var title: String
     var symbol: String
-    var tint: Color
+    /// One of `PhaseStyle`'s fills, dark enough for the white label.
+    var fill: Color
     var action: @MainActor () -> Void
 
     var body: some View {
@@ -264,7 +287,7 @@ struct ProminentButton: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .tint(tint)
+        .tint(fill)
     }
 }
 
@@ -307,7 +330,9 @@ struct IconButton: View {
 struct DecisionCard: View {
     var prompt: AppModel.EndPrompt
     var model: AppModel
-    var tint: Color
+    var style: PhaseStyle
+
+    private var tint: Color { style.tint }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -320,18 +345,18 @@ struct DecisionCard: View {
             }
             switch prompt {
             case .focusEnded:
-                ProminentButton(title: "Start break", symbol: "cup.and.saucer.fill", tint: tint, action: model.startBreak)
+                ProminentButton(title: "Start break", symbol: "cup.and.saucer.fill", fill: style.fill, action: model.startBreak)
                     .controlSize(.large)
                 HStack(spacing: 8) {
                     secondary("+5 min", symbol: "plus") { model.extend(minutes: 5) }
                     secondary("Keep going", symbol: "arrow.forward", action: model.keepGoing)
                 }
             case .breakEnded:
-                ProminentButton(title: "Start focus", symbol: "play.fill", tint: tint, action: model.startFocus)
+                ProminentButton(title: "Start focus", symbol: "play.fill", fill: style.fill, action: model.startFocus)
                     .controlSize(.large)
                 HStack(spacing: 8) {
                     secondary("+2 min", symbol: "plus") { model.extend(minutes: 2) }
-                    secondary("Done for now", symbol: "checkmark", action: model.stop)
+                    secondary("Done for now", symbol: "checkmark", action: model.stopAndLog)
                 }
             }
         }
@@ -360,21 +385,22 @@ struct PresetRow: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(model.settings.presets.prefix(3)) { preset in
+                let isDefault = preset.id == model.settings.defaultPresetID
                 Chip(
                     title: Self.shortSummary(preset.profile),
-                    isSelected: model.pendingOverride == nil && preset.id == model.settings.defaultPresetID,
+                    emphasis: model.pendingOneOff == .preset(preset.id) ? .selected : isDefault ? .outlined : .none,
                     tint: tint
                 ) {
-                    model.selectPreset(preset.id)
+                    model.toggleOneOffPreset(preset.id)
                 }
-                .help(preset.displayName)
+                .help(isDefault ? "\(preset.displayName), the default" : "\(preset.displayName) for the next focus only")
             }
             Spacer(minLength: 0)
-            if let override = model.pendingOverride {
-                Chip(title: "\(Self.summary(override)) once", symbol: "xmark", isSelected: true, tint: tint) {
-                    model.clearOverride()
+            if let pill = pillTitle {
+                Chip(title: "\(pill) once", symbol: "xmark", emphasis: .selected, tint: tint) {
+                    model.clearOneOff()
                 }
-                .help("One-off override for the next focus. Click to clear.")
+                .help("For the next focus and its break only. Click to clear.")
             } else {
                 TextField("Custom", text: $custom)
                     .textFieldStyle(.roundedBorder)
@@ -394,6 +420,14 @@ struct PresetRow: View {
         .font(.callout)
     }
 
+    private var pillTitle: String? {
+        switch model.pendingOneOff {
+        case .custom(let override): Self.summary(override)
+        case .preset: model.pendingOneOffProfile.map(Self.shortSummary)
+        case nil: nil
+        }
+    }
+
     /// "25/5": focus and short break, in minutes.
     static func shortSummary(_ profile: TimerProfile) -> String {
         "\(Int((profile.focusDuration / 60).rounded()))/\(Int((profile.shortBreakDuration / 60).rounded()))"
@@ -406,11 +440,20 @@ struct PresetRow: View {
 }
 
 struct Chip: View {
+    enum Emphasis {
+        case none
+        /// The default preset: outlined, so it stays distinguishable from a pending one-off.
+        case outlined
+        case selected
+    }
+
     var title: String
     var symbol: String?
-    var isSelected: Bool
+    var emphasis: Emphasis
     var tint: Color
     var action: @MainActor () -> Void
+
+    private var isSelected: Bool { emphasis == .selected }
 
     var body: some View {
         Button(action: action) {
@@ -426,7 +469,7 @@ struct Chip: View {
             .background(
                 Capsule().fill(isSelected ? AnyShapeStyle(tint.opacity(0.16)) : AnyShapeStyle(.quaternary))
             )
-            .overlay(Capsule().strokeBorder(isSelected ? tint.opacity(0.5) : .clear))
+            .overlay(Capsule().strokeBorder(emphasis == .none ? .clear : tint.opacity(isSelected ? 0.5 : 0.8)))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

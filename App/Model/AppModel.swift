@@ -30,8 +30,14 @@ final class AppModel {
     /// Always `nil` until tasks land (#10).
     private(set) var currentTaskTitle: String? = nil
 
-    /// Every batch of engine events, after the model has handled it. The seam for notifications.
-    @ObservationIgnored var onEngineEvents: (([TimerEvent]) -> Void)?
+    typealias EngineUpdate = @MainActor (TimerEngine, [TimerEvent]) -> Void
+
+    /// Called synchronously after every engine call the model makes, once it has logged, played
+    /// sounds, persisted and rescheduled: each action (including those that return no events),
+    /// each reconcile (including the one at launch), and each settings change that reaches the
+    /// engine. The seam for #9: `notifications.sync(with:events:)` and `appNap.update(with:)`.
+    /// Pass it to `init` to see the launch reconcile.
+    @ObservationIgnored var onEngineUpdate: EngineUpdate?
 
     @ObservationIgnored let database: AppDatabase
     @ObservationIgnored let sound: SoundService
@@ -40,9 +46,8 @@ final class AppModel {
     @ObservationIgnored private let settingsStore: any SettingsStore
     @ObservationIgnored private let timerStore: any TimerStateStore
     @ObservationIgnored private let scheduler: any TimerScheduling
-    /// The profile the current focus (and the break right after it) runs on; the default
-    /// profile unless a one-off override was consumed.
-    @ObservationIgnored private var sessionProfile: TimerProfile
+    /// The one-off the current focus and the break after it run on; `nil` follows the default.
+    @ObservationIgnored private var oneOffProfile: TimerProfile?
     @ObservationIgnored private var lastPersisted: PersistedTimer?
     @ObservationIgnored private var boundaryTimer: (any ScheduledTimer)?
     @ObservationIgnored private var refreshTimer: (any ScheduledTimer)?
@@ -53,13 +58,14 @@ final class AppModel {
         timerStore: any TimerStateStore,
         database: AppDatabase,
         sound: SoundService,
-        scheduler: any TimerScheduling
+        scheduler: any TimerScheduling,
+        onEngineUpdate: EngineUpdate? = nil
     ) {
         let settings = settingsStore.load()
         let restored = timerStore.load()
-        let profile = restored.flatMap { $0.state.phase == .focus ? $0.profile : nil } ?? settings.defaultProfile
+        let oneOff = restored?.state.phase == .idle ? nil : restored?.profile
         let engine = TimerEngine(
-            configuration: TimerConfiguration(profile: profile),
+            configuration: TimerConfiguration(profile: oneOff ?? settings.defaultProfile),
             clock: clock,
             state: restored?.state ?? TimerState()
         )
@@ -71,16 +77,19 @@ final class AppModel {
         self.scheduler = scheduler
         self.engine = engine
         self.settings = settings
-        self.sessionProfile = profile
+        self.oneOffProfile = oneOff
         self.lastPersisted = restored
+        self.onEngineUpdate = onEngineUpdate
         self.snapshot = engine.snapshot()
         sound.settings = settings.sounds
+        // Every focus picks its profile here, including one auto-started inside a catch-up.
+        engine.configurationForFocus = { [weak self] in self?.configurationForFocus() }
         refreshCompletedToday()
         // A session restored from disk may have ended while the app wasn't running.
         reconcile()
     }
 
-    static func live() -> AppModel {
+    static func live(onEngineUpdate: EngineUpdate? = nil) -> AppModel {
         let database: AppDatabase
         do {
             database = try .onDisk()
@@ -94,7 +103,8 @@ final class AppModel {
             timerStore: UserDefaultsTimerStateStore(),
             database: database,
             sound: SoundService(),
-            scheduler: RunLoopScheduler()
+            scheduler: RunLoopScheduler(),
+            onEngineUpdate: onEngineUpdate
         )
     }
 
@@ -104,11 +114,15 @@ final class AppModel {
         MenuBarTitle.text(for: snapshot, mode: settings.menuBarDisplay, taskTitle: currentTaskTitle)
     }
 
+    var pendingOneOff: SessionOneOff? { planner.pending }
     var pendingOverride: SessionOverride? { planner.pendingOverride }
 
-    /// What an idle readout shows: the next focus, including any pending override.
+    /// The profile a pending one-off would run on, for its "once" pill.
+    var pendingOneOffProfile: TimerProfile? { planner.pending?.profile(in: settings) }
+
+    /// What an idle readout shows: the next focus, including any pending one-off.
     var nextFocusDuration: TimeInterval {
-        planner.previewProfile(base: settings.defaultProfile).focusDuration
+        planner.previewProfile(in: settings).focusDuration
     }
 
     var longBreakEvery: Int { settings.defaultProfile.longBreakEvery }
@@ -117,11 +131,7 @@ final class AppModel {
 
     // MARK: - Timer actions
 
-    func startFocus() {
-        sessionProfile = planner.consumeProfile(base: settings.defaultProfile)
-        engine.configuration = TimerConfiguration(profile: sessionProfile)
-        handle(engine.start(phase: .focus))
-    }
+    func startFocus() { handle(engine.start(phase: .focus)) }
 
     /// Space: start when idle, otherwise pause or resume.
     func toggle() {
@@ -136,12 +146,13 @@ final class AppModel {
     func pause() { handle(engine.pause()) }
     func resume() { handle(engine.resume()) }
     func skip() { handle(engine.skip()) }
-    func stop() { handle(engine.stopAndLog()) }
+    func stopAndLog() { handle(engine.stopAndLog()) }
     func startBreak() { handle(engine.startBreak()) }
     func keepGoing() { handle(engine.keepGoing()) }
+    func extend(by amount: TimeInterval) { handle(engine.extend(by: amount)) }
 
     func extend(minutes: Int) {
-        handle(engine.extend(by: TimeInterval(minutes) * 60))
+        extend(by: TimeInterval(minutes) * 60)
     }
 
     /// Catches up after the boundary timer fires, and after wake or a clock change.
@@ -151,13 +162,17 @@ final class AppModel {
 
     // MARK: - Planning
 
-    /// A preset chip makes that preset the default and drops any pending one-off override.
-    func selectPreset(_ id: Preset.ID) {
-        planner.clearOverride()
-        updateSettings { try? $0.setDefaultPreset(id: id) }
+    /// A chip picks a preset for the next focus and its break only, never the default. Tapping
+    /// it again, or tapping the default's chip, goes back to the default.
+    func toggleOneOffPreset(_ id: Preset.ID) {
+        if planner.pendingPresetID == id || id == settings.defaultPresetID {
+            planner.clear()
+        } else {
+            planner.set(.preset(id))
+        }
     }
 
-    /// Parses "40" or "50/10" as an override for the next focus only.
+    /// Parses "40" or "50/10" as a one-off for the next focus and its break.
     @discardableResult
     func applyOverride(_ text: String) -> Bool {
         guard let override = SessionOverride(parsing: text) else { return false }
@@ -165,8 +180,8 @@ final class AppModel {
         return true
     }
 
-    func clearOverride() {
-        planner.clearOverride()
+    func clearOneOff() {
+        planner.clear()
     }
 
     func updateSettings(_ change: (inout AppSettings) -> Void) {
@@ -180,9 +195,18 @@ final class AppModel {
             Self.log.error("saving settings failed: \(String(describing: error), privacy: .public)")
         }
         sound.settings = updated.sounds
-        syncConfiguration()
-        persistTimer()
-        scheduleRefresh()
+        // A new nudge interval or auto-start moves the boundary, so this takes the same path as an action.
+        handle([])
+    }
+
+    /// Cancels pending timers and the tick. The run loop would otherwise keep a one-shot timer
+    /// alive after the model is gone.
+    func shutdown() {
+        boundaryTimer?.cancel()
+        boundaryTimer = nil
+        refreshTimer?.cancel()
+        refreshTimer = nil
+        sound.stopTicking()
     }
 
     // MARK: - Visibility
@@ -203,7 +227,7 @@ final class AppModel {
         for case .sessionRecorded(let record) in events {
             logSession(record)
         }
-        if let event = Self.sound(for: events) {
+        if let event = Self.sound(for: events, phase: engine.phase) {
             sound.play(for: event)
         }
         syncConfiguration()
@@ -216,16 +240,18 @@ final class AppModel {
         refreshSnapshot()
         scheduleBoundary()
         scheduleRefresh()
-        if !events.isEmpty {
-            onEngineEvents?(events)
-        }
+        onEngineUpdate?(engine, events)
     }
 
     /// One sound per batch, so ending a phase and auto-starting the next doesn't double up.
-    static func sound(for events: [TimerEvent]) -> SoundEvent? {
+    /// Notifications stay silent (#9), so an overtime nudge repeats the phase's end chime here.
+    static func sound(for events: [TimerEvent], phase: TimerPhase) -> SoundEvent? {
         if events.contains(.focusEnded) { return .focusEnd }
         if events.contains(.breakEnded) { return .breakEnd }
         if events.contains(where: { if case .phaseStarted = $0 { true } else { false } }) { return .start }
+        if events.contains(where: { if case .nudge = $0 { true } else { false } }) {
+            return phase.isBreak ? .breakEnd : .focusEnd
+        }
         return nil
     }
 
@@ -238,19 +264,24 @@ final class AppModel {
         refreshCompletedToday()
     }
 
-    /// The override lasts for one focus and the break begun from it; after that, the default.
+    /// Consumes the pending one-off as a focus begins. It stays in force through the break that
+    /// follows, and the next focus to begin consumes again, so it can't reach a later focus.
+    private func configurationForFocus() -> TimerConfiguration {
+        oneOffProfile = planner.consumeProfile(in: settings)
+        return TimerConfiguration(profile: oneOffProfile ?? settings.defaultProfile)
+    }
+
+    /// Keeps the engine on the session's profile, so settings changes reach default sessions.
     private func syncConfiguration() {
-        if engine.phase != .focus {
-            sessionProfile = settings.defaultProfile
-        }
-        let configuration = TimerConfiguration(profile: sessionProfile)
+        if engine.phase == .idle { oneOffProfile = nil }
+        let configuration = TimerConfiguration(profile: oneOffProfile ?? settings.defaultProfile)
         if engine.configuration != configuration {
             engine.configuration = configuration
         }
     }
 
     private func persistTimer() {
-        let persisted = PersistedTimer(state: engine.state, profile: sessionProfile)
+        let persisted = PersistedTimer(state: engine.state, profile: oneOffProfile)
         guard persisted != lastPersisted else { return }
         do {
             try timerStore.save(persisted)
@@ -269,7 +300,9 @@ final class AppModel {
             case .overtime: !engine.state.nudgesSilenced
             case .running, .paused: false
             }
-        prompt = waiting ? (snapshot.phase.isBreak ? .breakEnded : .focusEnded) : nil
+        let prompt: EndPrompt? = waiting ? (snapshot.phase.isBreak ? .breakEnded : .focusEnded) : nil
+        // Observation notifies on every set, so leave an unchanged prompt alone.
+        if prompt != self.prompt { self.prompt = prompt }
     }
 
     private func refreshCompletedToday() {

@@ -30,13 +30,23 @@ public final class TimerEngine {
     /// Changing `nudgeInterval` during overtime keeps the last nudge as the anchor: the next one
     /// comes a new interval after it, or a new interval from now if that moment has passed.
     public var configuration: TimerConfiguration {
-        didSet {
-            if oldValue.nudgeInterval != configuration.nudgeInterval { reanchorNudges(at: clock.now) }
+        get { storedConfiguration }
+        set {
+            let old = storedConfiguration
+            storedConfiguration = newValue
+            if old.nudgeInterval != newValue.nudgeInterval { reanchorNudges(at: clock.now) }
         }
     }
     public private(set) var state: TimerState
     /// Receives every event, in order. Actions also return them.
     public var onEvent: ((TimerEvent) -> Void)?
+    /// Asked as each focus begins, by any route (start, skip, or an auto-start chained inside one
+    /// catch-up), before its duration is chosen. A non-nil result replaces `configuration` and so
+    /// also covers the break that follows. This is how a one-off profile lasts exactly one focus:
+    /// a configuration set after an action returns would be too late for a chained auto-start.
+    public var configurationForFocus: (() -> TimerConfiguration?)?
+
+    private var storedConfiguration: TimerConfiguration
 
     private let clock: any TimeSource
 
@@ -45,7 +55,7 @@ public final class TimerEngine {
         clock: any TimeSource = SystemClock(),
         state: TimerState = TimerState()
     ) {
-        self.configuration = configuration
+        self.storedConfiguration = configuration
         self.clock = clock
         self.state = state
     }
@@ -342,6 +352,8 @@ public final class TimerEngine {
     }
 
     private func begin(_ phase: TimerPhase, at date: Date, duration: TimeInterval?, events: inout [TimerEvent]) {
+        // Set without re-anchoring nudges: the phase starting below resets them anyway.
+        if phase == .focus, let next = configurationForFocus?() { storedConfiguration = next }
         if phase == .longBreak { state.completedFocusesInCycle = 0 }
         state.phase = phase
         state.status = .running
