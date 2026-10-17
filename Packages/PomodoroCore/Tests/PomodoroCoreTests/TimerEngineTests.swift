@@ -1303,3 +1303,73 @@ struct TimerEngineReentryTests {
         #expect(engine.phase == .focus)
     }
 }
+
+struct TimerEngineAssignTaskTests {
+    @Test func switchingMidFocusReattributesTheWholeSession() throws {
+        let (engine, clock) = makeEngine()
+        let first = UUID()
+        let second = UUID()
+        engine.start(taskID: first)
+        clock.advance(by: 600)
+        let snapshotBefore = engine.snapshot()
+        #expect(engine.assignTask(second).isEmpty)
+        #expect(engine.taskID == second)
+        #expect(engine.snapshot().elapsed == snapshotBefore.elapsed, "timing is untouched")
+        #expect(engine.nextBoundary == t0 + focus)
+
+        clock.advance(by: focus - 600)
+        let record = try #require(records(engine.stopAndLog()).first)
+        #expect(record.taskID == second)
+        #expect(record.startedAt == t0)
+        #expect(record.outcome == .completed)
+    }
+
+    @Test func clearingTheTaskRecordsNone() throws {
+        let (engine, clock) = makeEngine()
+        engine.start(taskID: UUID())
+        clock.advance(by: 60)
+        engine.assignTask(nil)
+        let record = try #require(records(engine.stopAndLog()).first)
+        #expect(record.taskID == nil)
+    }
+
+    @Test func idleIgnoresIt() {
+        let (engine, _) = makeEngine()
+        #expect(engine.assignTask(UUID()).isEmpty)
+        #expect(engine.taskID == nil)
+        #expect(engine.state == TimerState())
+    }
+
+    @Test func assigningDuringABreakCarriesIntoTheNextFocus() throws {
+        let (engine, clock) = makeEngine()
+        let first = UUID()
+        let second = UUID()
+        engine.start(taskID: first)
+        clock.advance(by: focus)
+        let ended = engine.startBreak()
+        #expect(records(ended).first?.taskID == first)
+        engine.assignTask(second)
+        engine.skip()
+        #expect(engine.phase == .focus)
+        #expect(engine.taskID == second)
+        clock.advance(by: 60)
+        #expect(records(engine.stopAndLog()).first?.taskID == second)
+    }
+
+    @Test func reconcilesFirstSoAnOverdueEndIsStillDelivered() {
+        let (engine, clock) = makeEngine()
+        engine.start(taskID: UUID())
+        clock.advance(by: focus + 30)
+        #expect(kinds(engine.assignTask(UUID())) == ["focusEnded"])
+    }
+
+    @Test func survivesPersistence() throws {
+        let (engine, clock) = makeEngine()
+        let id = UUID()
+        engine.start()
+        engine.assignTask(id)
+        let data = try JSONEncoder().encode(engine.state)
+        let restored = TimerEngine(clock: clock, state: try JSONDecoder().decode(TimerState.self, from: data))
+        #expect(restored.taskID == id)
+    }
+}

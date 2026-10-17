@@ -10,10 +10,21 @@ struct PopoverActions {
 }
 
 struct PopoverView: View {
-    static let size = CGSize(width: 320, height: 420)
+    static let size = CGSize(width: 320, height: 520)
 
     let model: AppModel
     var actions = PopoverActions()
+    /// Pre-filled quick-add text, for snapshots of the preview.
+    var quickAddText = ""
+
+    /// Space types into the quick-add field rather than toggling the timer.
+    @State private var isEditingTask = false
+
+    init(model: AppModel, actions: PopoverActions = PopoverActions(), quickAddText: String = "") {
+        self.model = model
+        self.actions = actions
+        self.quickAddText = quickAddText
+    }
 
     private var snapshot: TimerSnapshot { model.snapshot }
     private var style: PhaseStyle { PhaseStyle(snapshot) }
@@ -24,30 +35,33 @@ struct PopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
             TimerRing(
                 progress: snapshot.phase == .idle ? 0 : snapshot.progress,
                 tint: style.tint,
                 isDimmed: isPaused,
-                diameter: model.prompt == nil ? 168 : 116,
+                diameter: model.prompt == nil ? 148 : 104,
                 readout: readout,
                 caption: caption
             )
-            Spacer(minLength: 10)
+            Spacer(minLength: 8)
             if let prompt = model.prompt {
                 DecisionCard(prompt: prompt, model: model, style: style)
             } else {
                 controls
             }
-            Spacer(minLength: 10)
+            Spacer(minLength: 8)
             if showsPlanning {
                 PresetRow(model: model, tint: PhaseStyle.focusTint)
-                Spacer(minLength: 10)
+                Spacer(minLength: 8)
             }
-            taskLine
-            Spacer(minLength: 8)
-            TodayRow(completed: model.completedToday, cycle: model.longBreakEvery)
-            Spacer(minLength: 10)
+            TaskPickerLine(model: model)
+            Spacer(minLength: 6)
+            Divider()
+            PopoverTaskSection(
+                model: model, openPlanner: actions.openPlanner, quickAddText: quickAddText, isEditing: $isEditingTask)
+            .equatable()
+                .padding(.vertical, 8)
             Divider()
             footer
                 .padding(.top, 8)
@@ -149,19 +163,6 @@ struct PopoverView: View {
         IconButton(symbol: "stop.fill", help: snapshot.phase == .focus ? "Stop and log (⌘.)" : "Stop (⌘.)", action: model.stopAndLog)
     }
 
-    private var taskLine: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "checklist")
-                .foregroundStyle(.secondary)
-            Text(model.currentTaskTitle ?? "No task selected")
-                .foregroundStyle(model.currentTaskTitle == nil ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-        }
-        .font(.callout)
-    }
-
     private var footer: some View {
         HStack(spacing: 14) {
             Button(action: actions.openPlanner) {
@@ -187,6 +188,7 @@ struct PopoverView: View {
         ZStack {
             Button("Start or pause", action: model.toggle)
                 .keyboardShortcut(.space, modifiers: [])
+                .disabled(isEditingTask)
             Button("Stop", action: model.stopAndLog)
                 .keyboardShortcut(".", modifiers: .command)
         }

@@ -127,6 +127,52 @@ final class ModelHarness {
         }
     }
 
+    struct SeededTasks {
+        var writeSpec: TaskItem
+        var reviewPR: TaskItem
+        var all: [TaskItem]
+    }
+
+    /// A realistic day: six tasks today (one done, one over its estimate), two in the inbox, one
+    /// tomorrow, sessions logged against some, and a block on "Review PR" running now.
+    @discardableResult
+    func seedTasks() throws -> SeededTasks {
+        let today = database.day(containing: Self.start)
+        let tomorrow = CivilDay(year: 2026, month: 10, day: 18)
+        var created: [TaskItem] = []
+        @discardableResult
+        func add(_ title: String, _ estimate: Int?, tag: String? = nil, day: CivilDay?, notes: String = "") throws -> TaskItem {
+            let task = try database.tasks.create(
+                title: title, notes: notes, estimatePomodoros: estimate, tag: tag, scheduledDay: day, createdAt: Self.start - 7200)
+            created.append(task)
+            return task
+        }
+        let writeSpec = try add("Write spec for quick-add", 3, tag: "work", day: today, notes: "Cover the trailing-group rule")
+        let reviewPR = try add("Review PR #42", 2, tag: "work", day: today)
+        let inboxZero = try add("Inbox zero", 1, day: today)
+        let standup = try add("Standup notes", nil, day: today)
+        try add("Call the dentist", nil, day: today)
+        try add("Read the design doc", 4, day: today)
+        try add("Book flights", nil, day: nil)
+        try add("Learn GRDB observation", 2, tag: "learning", day: nil)
+        try add("Prepare demo", 2, day: tomorrow)
+        try database.tasks.setDone(id: standup.id, true, at: Self.start - 3600)
+
+        // Hour-long slots from 03:00 so nothing overlaps the block or the seeded day total.
+        var hour = 3.0
+        for (task, count) in [(writeSpec, 2), (reviewPR, 3), (inboxZero, 0)] {
+            for _ in 0..<count {
+                let begin = Self.utc.startOfDay(for: Self.start) + hour * 3600
+                try database.sessions.insert(FocusSession(
+                    taskID: task.id, start: begin, end: begin + 1500, plannedSeconds: 1500, activeSeconds: 1500, completed: true
+                ))
+                hour += 1
+            }
+        }
+        try database.blocks.insert(TimeBlock(taskID: reviewPR.id, title: reviewPR.title, start: Self.start - 900, duration: 3600))
+        return SeededTasks(writeSpec: writeSpec, reviewPR: reviewPR, all: created)
+    }
+
     func sessionsToday() throws -> [FocusSession] {
         let day = Self.utc.startOfDay(for: Self.start)
         return try database.sessions.sessions(in: day..<(day + 86_400))

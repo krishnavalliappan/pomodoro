@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let model else { return }
+        windows.model = model
         menuBar = MenuBarController(model: model, windows: windows)
     }
 

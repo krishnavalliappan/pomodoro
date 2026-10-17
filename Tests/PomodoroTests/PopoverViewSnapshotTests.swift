@@ -76,9 +76,32 @@ final class PopoverViewSnapshotTests: XCTestCase {
 
     func testPlaceholderWindows() {
         Snapshot.assertLightAndDark(
-            PlannerPlaceholderView(), size: PlannerPlaceholderView.size, name: "PlannerPlaceholderView", variant: "placeholder")
-        Snapshot.assertLightAndDark(
             SettingsPlaceholderView(), size: SettingsPlaceholderView.size, name: "SettingsPlaceholderView", variant: "placeholder")
+    }
+
+    // MARK: Tasks
+
+    /// A focus on a task: the picker names it, its row is highlighted, and dots show actuals.
+    func testFocusOnATask() throws {
+        let h = try harness()
+        let seeded = try h.seedTasks()
+        let model = h.makeModel()
+        model.startFocus(on: seeded.writeSpec.id)
+        h.clock.advance(by: 6 * 60 + 18)
+        assertPopover(model, "tasks")
+    }
+
+    func testNoTasks() throws {
+        let h = try harness()
+        assertPopover(h.makeModel(), "empty")
+    }
+
+    /// Typing shows what the parser found; the block running now is offered beside "No task".
+    func testQuickAddPreview() throws {
+        let h = try harness()
+        try h.seedTasks()
+        let model = h.makeModel()
+        assertPopover(model, "quickAdd", quickAddText: "Write spec ~3 @14:00 45m #work tomorrow")
     }
 
     // MARK: - Helpers
@@ -89,11 +112,17 @@ final class PopoverViewSnapshotTests: XCTestCase {
         return h
     }
 
-    private func assertPopover(_ model: AppModel, _ variant: String, file: StaticString = #filePath, line: UInt = #line) {
+    private func assertPopover(
+        _ model: AppModel,
+        _ variant: String,
+        quickAddText: String = "",
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         // Opening the popover refreshes the readout, as it does in the app.
         model.setPopoverVisible(true)
         Snapshot.assertLightAndDark(
-            PopoverView(model: model, actions: PopoverActions(quit: {})),
+            PopoverView(model: model, actions: PopoverActions(quit: {}), quickAddText: quickAddText),
             size: PopoverView.size,
             name: "PopoverView",
             variant: variant,

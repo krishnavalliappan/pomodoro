@@ -22,6 +22,7 @@ enum Snapshot {
         size: CGSize,
         name: String,
         variant: String? = nil,
+        inWindow: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -33,7 +34,21 @@ enum Snapshot {
             let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))
             host.appearance = NSAppearance(named: appearance)
             host.frame = CGRect(origin: .zero, size: size)
+            // A `List` is a table view, whose rows only exist once it's in a window.
+            var window: NSWindow?
+            if inWindow {
+                let w = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                w.isReleasedWhenClosed = false
+                w.appearance = host.appearance
+                w.contentView = host
+                window = w
+            }
             host.layoutSubtreeIfNeeded()
+            if inWindow {
+                RunLoop.main.run(until: Date() + 0.2)
+                host.layoutSubtreeIfNeeded()
+            }
+            defer { window?.contentView = nil }
 
             let failure = verifySnapshot(
                 of: host,
