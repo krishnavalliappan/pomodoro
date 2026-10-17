@@ -34,6 +34,20 @@ struct StatsRepositoryTests {
         #expect(empty == TodaySummary(day: Fixture.day(18), streak: Streak(current: 3, best: 3)))
     }
 
+    @Test func recentDaysEndTodayAndIncludeEmptyDays() throws {
+        try session(day: 10, 9)
+        try session(day: 11, 9)
+        try session(day: 14, 9, minutes: 50)
+        try session(day: 17, 9)
+        try session(day: 17, 10, minutes: 10, completed: false)
+        try session(day: 18, 9)
+        let days = try db.stats.recentDays(7, now: Fixture.date(day: 17, 15))
+        #expect(days.map(\.day) == (11...17).map { Fixture.day($0) })
+        #expect(days.map(\.focusedSeconds) == [25, 0, 0, 50, 0, 0, 35].map { TimeInterval($0 * 60) })
+        #expect(days.map(\.completedPomodoros) == [1, 0, 0, 1, 0, 0, 1])
+        #expect(try db.stats.recentDays(0, now: Fixture.date(day: 17, 15)).isEmpty)
+    }
+
     @Test func weekReportJoinsTasksAndAllTimeActuals() throws {
         let spec = try db.tasks.create(title: "Write spec", estimatePomodoros: 3, createdAt: Fixture.date(day: 1))
         try session(day: 2, 9, taskID: spec.id)

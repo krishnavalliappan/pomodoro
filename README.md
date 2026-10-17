@@ -33,9 +33,11 @@ and time-blocking built in.
 
 | | Light | Dark |
 |---|---|---|
-| Idle | <img src="Snapshots/PopoverView.idle-light.png" width="320" alt="Idle popover, light"> | <img src="Snapshots/PopoverView.idle-dark.png" width="320" alt="Idle popover, dark"> |
-| Focus | <img src="Snapshots/PopoverView.focus-light.png" width="320" alt="Focus running, light"> | <img src="Snapshots/PopoverView.focus-dark.png" width="320" alt="Focus running, dark"> |
-| Overtime | <img src="Snapshots/PopoverView.overtime-light.png" width="320" alt="Overtime with break prompt, light"> | <img src="Snapshots/PopoverView.overtime-dark.png" width="320" alt="Overtime with break prompt, dark"> |
+| Timer | <img src="Snapshots/PopoverView.timer-idle-light.png" width="300" alt="Timer tab, idle, light"> | <img src="Snapshots/PopoverView.timer-idle-dark.png" width="300" alt="Timer tab, idle, dark"> |
+| Focus | <img src="Snapshots/PopoverView.timer-focus-light.png" width="300" alt="Focus running, light"> | <img src="Snapshots/PopoverView.timer-focus-dark.png" width="300" alt="Focus running, dark"> |
+| Overtime | <img src="Snapshots/PopoverView.timer-overtime-light.png" width="300" alt="Overtime with break prompt, light"> | <img src="Snapshots/PopoverView.timer-overtime-dark.png" width="300" alt="Overtime with break prompt, dark"> |
+| Tasks | <img src="Snapshots/PopoverView.tasks-seeded-light.png" width="300" alt="Tasks tab, light"> | <img src="Snapshots/PopoverView.tasks-seeded-dark.png" width="300" alt="Tasks tab, dark"> |
+| Stats | <img src="Snapshots/PopoverView.stats-seeded-light.png" width="300" alt="Stats tab, light"> | <img src="Snapshots/PopoverView.stats-seeded-dark.png" width="300" alt="Stats tab, dark"> |
 
 Screenshots are the snapshot-test references, so they always match the current UI.
 
@@ -78,8 +80,9 @@ In the popover:
 |---|---|
 | Space | Start, pause, or resume |
 | ⌘. | Stop and log the session |
-| ⌘, | Settings |
-| ⌘Q | Quit |
+| ⌘1 – ⌘4 | Timer, Tasks, Sounds, Stats tabs |
+| ⌘, | Settings (also the ⚙ in the tab bar) |
+| ⌘Q | Quit (also on the ⚙'s right-click menu) |
 
 Global hotkeys have no defaults, so they can't clash with other apps. Set them in
 **Settings → Shortcuts**:
@@ -89,7 +92,7 @@ Global hotkeys have no defaults, so they can't clash with other apps. Set them i
 | Start or pause | Start, pause, or resume the timer from anywhere |
 | Skip to next phase | End the current phase and move on |
 | Show or hide timer | Toggle the popover |
-| Quick-add task | Open the popover with the quick-add field focused |
+| Quick-add task | Open the popover on the Tasks tab with the quick-add field focused |
 
 ## Quick-add grammar
 

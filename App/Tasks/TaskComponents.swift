@@ -113,13 +113,17 @@ struct QuickAddField: View {
     var isEditing: Binding<Bool>?
     /// Takes focus when the quick-add hotkey asks; only the popover's field does.
     var takesFocusRequests = false
+    /// Owned by the host when the text must outlive this field, as in the popover's Tasks tab.
+    var draft: Binding<String>?
 
-    @State private var text: String
+    @State private var localText = ""
     @FocusState private var isFocused: Bool
+
+    private var text: Binding<String> { draft ?? $localText }
 
     init(
         model: AppModel,
-        text: String = "",
+        draft: Binding<String>? = nil,
         toInbox: Bool = false,
         idleLine: AnyView? = nil,
         isEditing: Binding<Bool>? = nil,
@@ -130,11 +134,12 @@ struct QuickAddField: View {
         self.idleLine = idleLine
         self.isEditing = isEditing
         self.takesFocusRequests = takesFocusRequests
-        _text = State(initialValue: text)
+        self.draft = draft
     }
 
     private var parsed: QuickAddResult? {
-        text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : model.parseQuickAdd(text)
+        let text = text.wrappedValue
+        return text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : model.parseQuickAdd(text)
     }
 
     var body: some View {
@@ -142,7 +147,7 @@ struct QuickAddField: View {
             HStack(spacing: 6) {
                 Image(systemName: "plus.circle.fill")
                     .foregroundStyle(.secondary)
-                TextField(placeholder, text: $text)
+                TextField(placeholder, text: text)
                     .textFieldStyle(.plain)
                     // Pinned like the popover's Custom field: AppKit's own height isn't stable (#38).
                     .frame(height: 16)
@@ -176,8 +181,8 @@ struct QuickAddField: View {
     }
 
     private func submit() {
-        guard model.addTask(text, toInbox: toInbox) != nil else { return }
-        text = ""
+        guard model.addTask(text.wrappedValue, toInbox: toInbox) != nil else { return }
+        text.wrappedValue = ""
     }
 }
 

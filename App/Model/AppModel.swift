@@ -15,6 +15,21 @@ final class AppModel {
         case breakEnded
     }
 
+    /// What the timer is doing, without how far along it is.
+    struct TimerStage: Equatable {
+        var phase: TimerPhase
+        var status: TimerStatus
+        var isOvertime: Bool
+        var completedFocusesInCycle: Int
+
+        init(_ snapshot: TimerSnapshot) {
+            phase = snapshot.phase
+            status = snapshot.status
+            isOvertime = TimerReadout(snapshot).isOvertime
+            completedFocusesInCycle = snapshot.completedFocusesInCycle
+        }
+    }
+
     private static let log = Logger(subsystem: "dev.krishna.pomodoro", category: "model")
 
     /// Lands a refresh just after the readout's digit flips, never on the stale side of it.
@@ -23,6 +38,8 @@ final class AppModel {
     private(set) var snapshot: TimerSnapshot
     /// `snapshot.phase`, for views that must not re-render every second.
     private(set) var phase: TimerPhase
+    /// The rest of `snapshot` that only moves at a phase or status change, for the same views.
+    private(set) var stage: TimerStage
     /// Set while the end of a phase is waiting on the user: *Start break / +5 min / Keep going*.
     private(set) var prompt: EndPrompt? = nil
     private(set) var settings: AppSettings
@@ -102,6 +119,7 @@ final class AppModel {
         self.onEngineUpdate = onEngineUpdate
         self.snapshot = engine.snapshot()
         self.phase = engine.phase
+        self.stage = TimerStage(engine.snapshot())
         self.tasks = TaskStore(database: database, clock: clock)
         self.selectedTaskID = engine.taskID
         self.today = TodaySummary(day: database.day(containing: clock.now))
@@ -468,6 +486,8 @@ final class AppModel {
         let snapshot = engine.snapshot()
         self.snapshot = snapshot
         if snapshot.phase != phase { phase = snapshot.phase }
+        let stage = TimerStage(snapshot)
+        if stage != self.stage { self.stage = stage }
         let waiting =
             switch snapshot.status {
             case .awaitingDecision: snapshot.phase != .idle

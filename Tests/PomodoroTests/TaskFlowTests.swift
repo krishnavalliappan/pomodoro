@@ -360,9 +360,9 @@ final class TaskFlowTests: XCTestCase {
             (0..<open).map { TaskItem(title: "Open \($0)", createdAt: ModelHarness.start) }
                 + (0..<done).map { TaskItem(title: "Done \($0)", isDone: true, createdAt: ModelHarness.start) }
         }
-        XCTAssertEqual(PopoverTaskSection.hiddenOpenCount(tasks(open: 5, done: 2)), 0)
-        XCTAssertEqual(PopoverTaskSection.hiddenOpenCount(tasks(open: 4, done: 3)), 0)
-        XCTAssertEqual(PopoverTaskSection.hiddenOpenCount(tasks(open: 7, done: 1)), 2)
+        XCTAssertEqual(PopoverTasksTab.hiddenOpenCount(tasks(open: 6, done: 2)), 0)
+        XCTAssertEqual(PopoverTasksTab.hiddenOpenCount(tasks(open: 4, done: 3)), 0)
+        XCTAssertEqual(PopoverTasksTab.hiddenOpenCount(tasks(open: 8, done: 1)), 2)
     }
 
     func testOverflowingDotsBecomeACount() {

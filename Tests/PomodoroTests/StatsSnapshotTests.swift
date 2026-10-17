@@ -42,35 +42,6 @@ final class StatsSnapshotTests: XCTestCase {
             inWindow: true
         )
     }
-
-    /// The popover's Today line at the popover's content width, from empty to past the dot limit,
-    /// where it falls back to shorter forms instead of wrapping.
-    func testTodayRowGallery() {
-        let day = CivilDay(year: 2026, month: 10, day: 17)
-        let summaries = [
-            TodaySummary(day: day),
-            TodaySummary(day: day, streak: Streak(current: 6, best: 6)),
-            TodaySummary(day: day, focusedSeconds: 100 * 60, completedPomodoros: 4, streak: Streak(current: 6, best: 9)),
-            TodaySummary(day: day, focusedSeconds: 50 * 60, completedPomodoros: 2, streak: Streak(current: 1, best: 9)),
-            TodaySummary(day: day, focusedSeconds: 245 * 60, completedPomodoros: 9, streak: Streak(current: 23, best: 23)),
-            TodaySummary(day: day, focusedSeconds: 380 * 60, completedPomodoros: 14, streak: Streak(current: 120, best: 120)),
-        ]
-        let gallery = VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(summaries.enumerated()), id: \.offset) { entry in
-                TodayRow(summary: entry.element, cycle: 4)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(width: PopoverView.width, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor))
-        Snapshot.assertLightAndDark(
-            gallery,
-            size: CGSize(width: PopoverView.width, height: 184),
-            name: "TodayRow",
-            variant: "gallery"
-        )
-    }
 }
 
 extension ModelHarness {

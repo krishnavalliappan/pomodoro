@@ -16,20 +16,23 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private var renderedKey: String?
+    let navigation: PopoverNavigation
 
-    init(model: AppModel, windows: WindowRouter) {
+    init(model: AppModel, windows: WindowRouter, defaults: UserDefaults = .standard) {
         self.model = model
         self.windows = windows
+        navigation = PopoverNavigation(defaults: defaults)
         super.init()
 
         popover.behavior = .transient
         popover.delegate = self
         let actions = PopoverActions(
             openPlanner: { [weak self] in self?.open(.planner) },
+            openStats: { [weak self] in self?.open(.stats) },
             openSettings: { [weak self] in self?.open(.settings) }
         )
-        let host = PopoverHostingController(rootView: PopoverView(model: model, actions: actions))
-        // The popover follows the view's height as the task list folds, empties or fills.
+        let host = PopoverHostingController(rootView: PopoverView(model: model, navigation: navigation, actions: actions))
+        // The popover follows the view's height as tabs switch and the task list fills or empties.
         host.sizingOptions = [.preferredContentSize]
         popover.contentViewController = host
 
@@ -130,11 +133,10 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         }
     }
 
-    /// The quick-add hotkey. The field sits above the Today list, so it's there even when the
-    /// list is folded.
+    /// The quick-add hotkey: brings the Tasks tab forward, whichever tab was left showing.
     func focusQuickAdd() {
         if !popover.isShown { showPopover() }
-        model.requestQuickAddFocus()
+        navigation.showQuickAdd(in: model)
     }
 
     private func showPopover() {
