@@ -249,31 +249,61 @@ protocol AudioOutputMonitor: AnyObject {
 }
 
 /// Listens for the default output device or the device list changing, e.g. headphones plugged in.
+///
+/// A C callback with a fixed context, not a listener block: Swift bridges a closure to a new block
+/// at every call, so removing "the same" block removes nothing and the listener lives on.
 @MainActor
 final class DefaultOutputMonitor: AudioOutputMonitor {
     private static let selectors = [kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices]
-    private var listener: AudioObjectPropertyListenerBlock?
 
-    func start(_ onChange: @escaping @MainActor () -> Void) {
-        guard listener == nil else { return }
-        // Delivered on main, then deferred a turn, so the handler may remove this listener.
-        let block: AudioObjectPropertyListenerBlock = { _, _ in
-            Task { @MainActor in onChange() }
+    /// The callback's context. It lives as long as the monitor, so a change reported while the
+    /// listener is being removed never reaches a freed object.
+    final class Relay: @unchecked Sendable {
+        @MainActor fileprivate var onChange: (@MainActor () -> Void)?
+
+        @MainActor fileprivate func deliver() {
+            onChange?()
         }
-        for selector in Self.selectors {
-            var address = Self.address(selector)
-            AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, block)
-        }
-        listener = block
     }
 
-    func stop() {
-        guard let listener else { return }
+    let relay = Relay()
+    private(set) var isListening = false
+
+    isolated deinit {
+        stop()
+    }
+
+    func start(_ onChange: @escaping @MainActor () -> Void) {
+        relay.onChange = onChange
+        guard !isListening else { return }
+        isListening = true
         for selector in Self.selectors {
             var address = Self.address(selector)
-            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, listener)
+            AudioObjectAddPropertyListener(AudioObjectID(kAudioObjectSystemObject), &address, Self.callback, context)
         }
-        self.listener = nil
+    }
+
+    /// Changes already reported but not yet delivered are dropped too.
+    func stop() {
+        relay.onChange = nil
+        guard isListening else { return }
+        isListening = false
+        for selector in Self.selectors {
+            var address = Self.address(selector)
+            AudioObjectRemovePropertyListener(AudioObjectID(kAudioObjectSystemObject), &address, Self.callback, context)
+        }
+    }
+
+    private var context: UnsafeMutableRawPointer { Unmanaged.passUnretained(relay).toOpaque() }
+
+    /// Runs on a HAL thread; the handler runs a main-actor turn later, so it may remove this listener.
+    static let callback: AudioObjectPropertyListenerProc = { _, _, _, context in
+        guard let context else { return noErr }
+        let relay = Unmanaged<Relay>.fromOpaque(context).takeUnretainedValue()
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { relay.deliver() }
+        }
+        return noErr
     }
 
     private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {

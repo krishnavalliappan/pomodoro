@@ -69,6 +69,58 @@ final class AVAmbientEngineTests: XCTestCase {
         XCTAssertFalse(engine.isWaitingForOutput)
     }
 
+    // MARK: The system output monitor
+
+    /// Its listener must really go: a handler still registered keeps what it captured alive and
+    /// keeps restarting the engine at every device change.
+    func testOutputMonitorLetsGoOfItsHandlerWhenStopped() {
+        let monitor = DefaultOutputMonitor()
+        weak var released: Sentinel?
+        do {
+            let sentinel = Sentinel()
+            released = sentinel
+            monitor.start { sentinel.count += 1 }
+            monitor.start { sentinel.count += 1 }
+        }
+        XCTAssertTrue(monitor.isListening)
+        XCTAssertNotNil(released)
+        monitor.stop()
+        XCTAssertFalse(monitor.isListening)
+        XCTAssertNil(released, "the handler outlived stop()")
+    }
+
+    func testOutputMonitorDeliversOnMainOnlyWhileListening() async throws {
+        let monitor = DefaultOutputMonitor()
+        let sentinel = Sentinel()
+        monitor.start { sentinel.count += 1 }
+        report(to: monitor)
+        try await mainTurn()
+        XCTAssertEqual(sentinel.count, 1)
+
+        report(to: monitor)
+        monitor.stop()
+        try await mainTurn()
+        XCTAssertEqual(sentinel.count, 1, "a change reported just before stop() is dropped")
+
+        monitor.start { sentinel.count += 10 }
+        report(to: monitor)
+        try await mainTurn()
+        XCTAssertEqual(sentinel.count, 11, "restarts cleanly")
+        monitor.stop()
+    }
+
+    /// What CoreAudio does on a device change, from its own thread.
+    private func report(to monitor: DefaultOutputMonitor) {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        let context = Unmanaged.passUnretained(monitor.relay).toOpaque()
+        _ = DefaultOutputMonitor.callback(AudioObjectID(kAudioObjectSystemObject), 1, &address, context)
+    }
+
+    private func mainTurn() async throws {
+        try await Task.sleep(for: .milliseconds(50))
+    }
+
     // MARK: Looping
 
     /// A loop far shorter than any in the library, rendered offline across many seams: every
@@ -184,4 +236,9 @@ final class FakeOutputMonitor: AudioOutputMonitor {
 @MainActor
 private final class OutputSwitch {
     var isOn = false
+}
+
+@MainActor
+private final class Sentinel {
+    var count = 0
 }

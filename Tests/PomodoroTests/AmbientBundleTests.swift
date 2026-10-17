@@ -25,6 +25,22 @@ final class AmbientBundleTests: XCTestCase {
         }
     }
 
+    /// The length above is container metadata; this decodes every frame, a chunk at a time.
+    func testEverySoundDecodesEveryFrame() throws {
+        for sound in library.sounds {
+            let url = try XCTUnwrap(AVAmbientEngine.url(for: sound, in: bundle))
+            let file = try AVAudioFile(forReading: url)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 1 << 16))
+            var decoded = 0
+            while file.framePosition < file.length {
+                try file.read(into: buffer)
+                if buffer.frameLength == 0 { break }
+                decoded += Int(buffer.frameLength)
+            }
+            XCTAssertEqual(decoded, sound.frames, sound.id)
+        }
+    }
+
     func testEverySymbolExists() {
         for sound in library.sounds {
             XCTAssertNotNil(NSImage(systemSymbolName: sound.symbol, accessibilityDescription: nil), "\(sound.id): \(sound.symbol)")
