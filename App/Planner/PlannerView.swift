@@ -7,28 +7,23 @@ struct PlannerView: View {
 
     var model: AppModel
 
+    @State private var timeline: TimelineStore
+
+    init(model: AppModel, timeline: TimelineStore? = nil) {
+        self.model = model
+        _timeline = State(initialValue: timeline ?? TimelineStore(model: model))
+    }
+
     var body: some View {
-        // A plain split rather than NavigationSplitView: the timeline (#11) owns the detail pane's
+        // A plain split rather than NavigationSplitView: the timeline owns the detail pane's
         // layout, and a NavigationSplitView sidebar doesn't render outside a live window.
         HStack(spacing: 0) {
             TaskListView(model: model)
                 .frame(width: Self.sidebarWidth)
             Divider()
-            TimelinePlaceholder()
+            DayTimelineView(store: timeline)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 640, minHeight: 420)
-    }
-}
-
-/// Stands in until the day timeline lands (#11).
-struct TimelinePlaceholder: View {
-    var body: some View {
-        ContentUnavailableView {
-            Label("Timeline", systemImage: "calendar.day.timeline.left")
-        } description: {
-            Text("Timeline (coming in #11)")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .textBackgroundColor))
     }
 }

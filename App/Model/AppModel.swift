@@ -52,7 +52,7 @@ final class AppModel {
     @ObservationIgnored let database: AppDatabase
     @ObservationIgnored let sound: SoundService
     @ObservationIgnored private let engine: TimerEngine
-    @ObservationIgnored private let clock: any TimeSource
+    @ObservationIgnored let clock: any TimeSource
     @ObservationIgnored private let settingsStore: any SettingsStore
     @ObservationIgnored private let timerStore: any TimerStateStore
     @ObservationIgnored private let scheduler: any TimerScheduling
