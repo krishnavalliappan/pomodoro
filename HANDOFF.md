@@ -105,9 +105,12 @@ ad-hoc signs and publishes it. `MARKETING_VERSION` and `Version.current` are alr
 | #45 Subtle animations | — | unblocked (#46 merged) |
 
 **Do this first: #49, a flaky idle snapshot.** After #46 merged, `main` CI failed once on
-`testIdle`. The only difference was the AppKit "Custom" field's placeholder text sitting
-1px lower. Fix it by making Custom a SwiftUI chip that becomes a text field only when
-clicked, and add a pixel-stability loop. Until it's fixed, any PR can hit this at random.
+`testIdle`, and the handoff PR then failed once on `testNoTasks`. In both cases the only
+difference was an AppKit-backed `TextField` placeholder (the "Custom" field and the
+quick-add field) sitting 1px lower. Fix it by drawing placeholders as SwiftUI `Text`
+overlays, or by making the fields lazy (a chip that becomes a field on click), and add a
+pixel-stability loop for those tabs. Until it's fixed, any PR can hit this at random, so
+re-run once and treat a repeat failure as real.
 
 **PR #47: what's done and what's left**
 
