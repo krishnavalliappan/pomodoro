@@ -2,6 +2,7 @@ import AppKit
 import SnapshotTesting
 import SwiftUI
 import XCTest
+@testable import Pomodoro
 
 enum Snapshot {
     /// References live in the repo-level `Snapshots/` folder rather than SnapshotTesting's
@@ -31,9 +32,7 @@ enum Snapshot {
             (.darkAqua, .dark, "dark"),
         ]
         for (appearance, scheme, label) in appearances {
-            let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))
-            host.appearance = NSAppearance(named: appearance)
-            host.frame = CGRect(origin: .zero, size: size)
+            let host = makeHost(view, appearance: appearance, scheme: scheme, size: size)
             // A `List` is a table view, whose rows only exist once it's in a window.
             var window: NSWindow?
             if inWindow {
@@ -63,5 +62,29 @@ enum Snapshot {
                 XCTFail(failure, file: file, line: line)
             }
         }
+    }
+
+    @MainActor
+    static func makeHost(_ view: some View, appearance: NSAppearance.Name, scheme: ColorScheme, size: CGSize) -> NSView {
+        let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme))
+        host.appearance = NSAppearance(named: appearance)
+        host.frame = CGRect(origin: .zero, size: size)
+        return host
+    }
+
+    /// The frame a content-sized popover gets, measured the way the app's popover sizes itself.
+    @MainActor
+    static func fittedSize(of view: some View) -> CGSize {
+        CGSize(width: PopoverView.width, height: NSHostingView(rootView: view).fittingSize.height.rounded(.up))
+    }
+
+    /// The pixel size `assertLightAndDark` would write for `view` at `size`.
+    @MainActor
+    static func renderedPixelSize(_ view: some View, size: CGSize) -> CGSize {
+        let host = makeHost(view, appearance: .aqua, scheme: .light, size: size)
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return .zero }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
     }
 }
