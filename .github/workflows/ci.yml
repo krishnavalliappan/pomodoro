@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -19,6 +20,8 @@ env:
 
 jobs:
   build-test:
+    # Drafts are built and tested locally (scripts/check.sh); CI is the gate once a PR is ready.
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
